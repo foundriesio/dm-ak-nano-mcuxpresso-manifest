@@ -1,0 +1,100 @@
+# The west manifest file (west.yml) for MCUXpresso SDK overall delivery.
+#
+# The per-workspace west configuration file, ${workspace_path}/.west/config,
+# specifies the path of the project containing this manifest file, the
+# path is relative to the workspace location ${workspace_path}.
+#
+#     [manifest]
+#     path = core
+#
+# See the west documentation for more information:
+#
+# https://docs.zephyrproject.org/latest/guides/west/index.html
+
+manifest:
+  
+  remotes:
+    - name: nxpmicro
+      url-base: https://github.com/NXPmicro
+    - name: nxp
+      url-base: https://github.com/NXP
+    - name: freertos
+      url-base: https://github.com/FreeRTOS/
+    - name: aws
+      url-base: https://github.com/aws/
+
+  defaults:
+    remote: nxpmicro
+
+  projects:
+    - name: mcux-sdk
+      revision: MCUX_2.11.0
+      path: mcuxsdk
+
+    - name: FreeRTOS-Kernel
+      revision: MCUX_2.11.0
+      path: rtos/freertos/freertos_kernel
+
+    - name: Unity
+      path: middleware/unity
+      revision: v2.5.2
+      url: https://github.com/ThrowTheSwitch/Unity.git
+
+    - name: mbedtls
+      path: middleware/mbedtls
+      revision: v2.26.0
+      url: https://github.com/ARMmbed/mbedtls.git
+
+    - name: lwip
+      path: middleware/lwip
+      revision: STABLE-2_1_2_RELEASE
+      url: https://github.com/lwip-tcpip/lwip.git
+
+    - name: coreJSON
+      path: middleware/freertos/coreJSON
+      revision: v3.0.2
+      remote: freertos
+
+    - name: coreHTTP
+      path: middleware/freertos/coreHTTP
+      revision: v2.1.0
+      remote: freertos
+
+    - name: corePKCS11
+      path: middleware/freertos/corePKCS11
+      revision: v3.4.0
+      remote: freertos
+
+    - name: ota-for-aws-iot-embedded-sdk
+      path: middleware/aws/ota
+      revision: v3.3.0
+      remote: aws
+
+    - name: pkcs11
+      path: middleware/pkcs11
+      revision: v2.40_errata01
+      # remote: aws
+      url: https://github.com/amazon-freertos/pkcs11
+
+    - name: amazon-freertos
+      path: rtos/amazon-freertos
+      revision: "202203.00"
+      remote: aws
+
+    - name: backoffAlgorithm
+      path: middleware/freertos/backoffAlgorithm
+      revision: "v1.2.0"
+      remote: freertos
+    
+    - name: http-parser
+      path: middleware/http-parser
+      revision: "v2.9.4"
+      url: https://github.com/nodejs/http-parser.git
+
+    - name: dm-ak-nano-mcuxpresso
+      path: foundriesio/dm-ak-nano-mcuxpresso
+      revision: mcuxsdk_github
+      url: https://github.com/detsch/dm-ak-nano-mcuxpresso.git
+
+  self:
+    path: foundriesio
