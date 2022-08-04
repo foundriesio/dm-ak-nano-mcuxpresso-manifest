@@ -28,11 +28,11 @@ manifest:
 
   projects:
     - name: mcux-sdk
-      revision: MCUX_2.11.0
+      revision: MCUX_2.12.0
       path: mcuxsdk
 
     - name: FreeRTOS-Kernel
-      revision: MCUX_2.11.0
+      revision: MCUX_2.12.0
       path: rtos/freertos/freertos_kernel
 
     - name: Unity
