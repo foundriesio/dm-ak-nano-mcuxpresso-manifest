@@ -93,8 +93,13 @@ manifest:
 
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
-      revision: mcuxsdk_github
-      url: https://github.com/detsch/dm-ak-nano-mcuxpresso.git
+      revision: main
+      url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
+
+    - name: libtufnano
+      path: foundriesio/libtufnano
+      revision: main
+      url: https://github.com/foundriesio/libtufnano.git
 
   self:
     path: poc
