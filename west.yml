@@ -28,7 +28,7 @@ manifest:
 
   projects:
     - name: mcux-sdk
-      revision: MCUX_2.12.0
+      revision: MCUX_2.12.0_UPDATE
       path: mcuxsdk
 
     - name: FreeRTOS-Kernel
@@ -42,13 +42,11 @@ manifest:
 
     - name: mbedtls
       path: middleware/mbedtls
-      revision: v2.26.0
-      url: https://github.com/ARMmbed/mbedtls.git
+      revision: MCUX_2.12.0
 
     - name: lwip
       path: middleware/lwip
-      revision: STABLE-2_1_2_RELEASE
-      url: https://github.com/lwip-tcpip/lwip.git
+      revision: MCUX_2.12.0
 
     - name: coreJSON
       path: middleware/freertos/coreJSON
