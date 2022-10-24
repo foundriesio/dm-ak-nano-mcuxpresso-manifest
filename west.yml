@@ -99,5 +99,10 @@ manifest:
       revision: main
       url: https://github.com/foundriesio/libtufnano.git
 
+    - name: plug-and-trust
+      path: middleware/plug-and-trust
+      revision: "v04.02.00"
+      remote: nxp
+
   self:
     path: poc
