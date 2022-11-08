@@ -9,7 +9,7 @@
 
 #if defined(FRDM_KW41Z) || defined(FRDM_K64F) || defined(IMX_RT) || \
     defined(LPC_55x)
-#define HAVE_KSDK
+// #define HAVE_KSDK
 #endif
 
 #ifdef HAVE_KSDK
