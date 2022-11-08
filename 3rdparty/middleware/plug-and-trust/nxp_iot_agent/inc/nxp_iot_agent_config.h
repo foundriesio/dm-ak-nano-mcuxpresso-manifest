@@ -79,7 +79,7 @@
  * This is specific to your customer account, the needed value can be obtaine in the GUI of the 
  * EdgeLock 2GO cloud service in the company settings of the account.
  */
-#define EDGELOCK2GO_HOSTNAME             "CHANGE THIS! - company specific hostname"
+#define EDGELOCK2GO_HOSTNAME             "zhpgunao9lc7zgo4.device-link.edgelock2go.com"
 #endif
 
 #ifndef EDGELOCK2GO_PORT
