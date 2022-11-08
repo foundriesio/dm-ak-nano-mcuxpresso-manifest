@@ -30,9 +30,7 @@ target_sources(${MCUX_SDK_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/src/common/nxp_iot_agent_utils_protobuf.c
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/platform/mbedtls/network_mbedtls.c
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/platform/mbedtls/net_lwip.c
-    ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/ex/src/utils/iot_agent_mqtt_freertos.c
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/ex/src/utils/iot_agent_claimcode_inject.c
-    ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/ex/src/network/iot_agent_network_lwip.c
     ${CMAKE_CURRENT_LIST_DIR}/hostlib/hostLib/tstUtil/tst_sm_time_kinetis.c
 )
 
