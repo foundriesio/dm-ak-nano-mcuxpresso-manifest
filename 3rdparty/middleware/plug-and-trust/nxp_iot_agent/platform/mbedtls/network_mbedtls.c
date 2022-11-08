@@ -23,7 +23,7 @@ static const mbedtls_ecp_group_id supported_curves [] = {MBEDTLS_ECP_DP_SECP192R
 		MBEDTLS_ECP_DP_SECP224R1,
 		MBEDTLS_ECP_DP_SECP256R1,
 		MBEDTLS_ECP_DP_SECP384R1,
-		MBEDTLS_ECP_DP_SECP521R1,
+		// MBEDTLS_ECP_DP_SECP521R1,
 		MBEDTLS_ECP_DP_NONE};
 
 void* network_new()
