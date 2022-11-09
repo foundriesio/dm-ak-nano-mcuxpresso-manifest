@@ -31,7 +31,7 @@ iot_agent_status_t iot_agent_log_performance_timing()
 #if NXP_IOT_AGENT_REQUEST_CRL_FROM_EDGELOCK_2GO
     printf("\tCRL_TIME : [%ldms] and ", iot_agent_time.crl_time);
 #endif
-    printf("APDU_TXRX_TIME : [%ldms] included in PROCESS_PROVISION_TIME\n", iot_agent_time.apdu_time);
+    IOT_AGENT_INFO("APDU_TXRX_TIME : [%ldms] included in PROCESS_PROVISION_TIME", iot_agent_time.apdu_time);
 
     //For hosts with filesystem create a log file
 #if (!AX_EMBEDDED)
