@@ -59,7 +59,7 @@
  * For security reasons performing this verification 
  * is recommended.
  */
-#define NXP_IOT_AGENT_VERIFY_EDGELOCK_2GO_SERVER_CERTIFICATE 1
+#define NXP_IOT_AGENT_VERIFY_EDGELOCK_2GO_SERVER_CERTIFICATE 0
 
 
 /**
