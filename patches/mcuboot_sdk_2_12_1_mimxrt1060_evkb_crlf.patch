@@ -1,0 +1,518 @@
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/armgcc/CMakeLists.txt b/boards/evkbmimxrt1060/mcuboot_opensource/armgcc/CMakeLists.txt
+index e18b372..d6c01e3 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/armgcc/CMakeLists.txt
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/armgcc/CMakeLists.txt
+@@ -58,6 +58,7 @@ add_executable(${MCUX_SDK_PROJECT_NAME}
+ "${ProjDirPath}/../clock_config.h"
+ "${ProjDirPath}/../dcd.c"
+ "${ProjDirPath}/../dcd.h"
++"${ProjDirPath}/../bootutil_hooks.c"
+ )
+ 
+ target_include_directories(${MCUX_SDK_PROJECT_NAME} PRIVATE
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/boot.c b/boards/evkbmimxrt1060/mcuboot_opensource/boot.c
+index 8da012c..3182016 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/boot.c
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/boot.c
+@@ -9,12 +9,14 @@
+ #include "sbl.h"
+ #include "boot.h"
+ #include "fsl_debug_console.h"
++#include "flash_partitioning.h"
+ 
+ iapfun jump2app;
+ 
+-#define IOMUXC_GPR_GPR30_REG 0x400AC078 // To specify the start address of flexspi1 and flexspi2
+-#define IOMUXC_GPR_GPR31_REG 0x400AC07C // To specify the end address of flexspi1 and flexspi2
+-#define IOMUXC_GPR_GPR32_REG 0x400AC080 // To specify the offset address of flexspi1 and flexspi2
++#ifdef CONFIG_MCUBOOT_FLASH_REMAP_ENABLE
++extern void SBL_EnableRemap(uint32_t start_addr, uint32_t end_addr, uint32_t off);
++extern void SBL_DisableRemap(void);
++#endif
+ 
+ struct arm_vector_table
+ {
+@@ -27,17 +29,6 @@ static struct arm_vector_table *vt;
+ #pragma weak cleanup
+ void cleanup(void);
+ 
+-void set_image_addr(uint32_t start_addr, uint32_t end_addr)
+-{
+-    *((volatile uint32_t *)IOMUXC_GPR_GPR30_REG) = start_addr;
+-    *((volatile uint32_t *)IOMUXC_GPR_GPR31_REG) = end_addr;
+-}
+-
+-void change_image_offset(uint32_t offset_size)
+-{
+-    *((volatile uint32_t *)IOMUXC_GPR_GPR32_REG) = offset_size;
+-}
+-
+ /* The bootloader of MCUboot */
+ void do_boot(struct boot_rsp *rsp)
+ {
+@@ -52,6 +43,31 @@ void do_boot(struct boot_rsp *rsp)
+     rc = flash_device_base(rsp->br_flash_dev_id, &flash_base);
+     assert(rc == 0);
+ 
++#if defined(MCUBOOT_DIRECT_XIP) && defined(CONFIG_MCUBOOT_FLASH_REMAP_ENABLE)
++
++    /* In case direct-xip mode and enabled flash remapping function check if
++     * the secondary slot is chosen to boot. If so we have to modify boot_rsp
++     * structure here and enable flash remapping just before the jumping to app.
++     * Flash remapping function has to be disabled when bootloader starts.
++     */
++
++    if (rsp->br_image_off == (BOOT_FLASH_CAND_APP - BOOT_FLASH_BASE))
++    {
++        uintptr_t start, end, off;
++        start = BOOT_FLASH_ACT_APP;
++        end   = BOOT_FLASH_ACT_APP + (BOOT_FLASH_CAND_APP - BOOT_FLASH_ACT_APP);
++        off   = BOOT_FLASH_CAND_APP - BOOT_FLASH_ACT_APP;
++
++        SBL_EnableRemap(start, end, off);
++        rsp->br_image_off = BOOT_FLASH_ACT_APP - BOOT_FLASH_BASE;
++        PRINTF("Booting the secondary slot - flash remapping is enabled\r\n");
++    }
++    else
++    {
++        PRINTF("Booting the primary slot - flash remapping is disabled\r\n");
++    }
++#endif
++
+     vt = (struct arm_vector_table *)(flash_base + rsp->br_image_off +
+ #ifdef MCUBOOT_SIGN_ROM
+                                      HAB_IVT_OFFSET +
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/boot.h b/boards/evkbmimxrt1060/mcuboot_opensource/boot.h
+index 8645f47..f3c79ee 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/boot.h
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/boot.h
+@@ -74,8 +74,6 @@ typedef struct
+     uint8_t Reserved[253];
+ } image_info_t;
+ 
+-void set_image_addr(uint32_t start_addr, uint32_t end_addr);
+-void change_image_offset(uint32_t offset_size);
+ void do_boot(struct boot_rsp *rsp);
+ 
+ #endif
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/include/mcuboot_config/mcuboot_config.h b/boards/evkbmimxrt1060/mcuboot_opensource/include/mcuboot_config/mcuboot_config.h
+index 6d16783..d26fdf7 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/include/mcuboot_config/mcuboot_config.h
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/include/mcuboot_config/mcuboot_config.h
+@@ -67,6 +67,9 @@
+  * The default is to support A/B image swapping with rollback.  A
+  * simpler code path, which only supports overwriting the
+  * existing image with the update image, is also available.
++ *
++ * In case of supported flash remap funcionality in the used processor the
++ * direct-xip mode is configured with user support for downgrade.
+  */
+ 
+ /* Uncomment to enable the overwrite-only code path. */
+@@ -74,10 +77,25 @@
+ 
+ #ifndef MCUBOOT_OVERWRITE_ONLY
+ 
++#ifdef CONFIG_MCUBOOT_FLASH_REMAP_ENABLE
++
++#define MCUBOOT_DIRECT_XIP
++#define MCUBOOT_DIRECT_XIP_REVERT
++
++#ifdef CONFIG_MCUBOOT_FLASH_REMAP_DOWNGRADE_SUPPORT
++/* Enable hook funcionality to support downgrade functionality in direct-xip
++ * mode, see hooks implementation in bootutil_hooks.c */
++#define MCUBOOT_IMAGE_ACCESS_HOOKS
++#endif /* CONFIG_MCUBOOT_FLASH_REMAP_DOWNGRADE_SUPPORT */
++
++#else
++
+ #define CONFIG_BOOT_SWAP_USING_MOVE
+ #define MCUBOOT_SWAP_USING_MOVE 1
+ 
+-#endif
++#endif /* CONFIG_MCUBOOT_FLASH_REMAP_ENABLE */
++
++#endif /* MCUBOOT_OVERWRITE_ONLY */
+ 
+ #ifdef MCUBOOT_OVERWRITE_ONLY
+ /* Uncomment to only erase and overwrite those primary slot sectors needed
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/main.c b/boards/evkbmimxrt1060/mcuboot_opensource/main.c
+index 437460b..502bb09 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/main.c
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/main.c
+@@ -13,6 +13,7 @@
+ #include "pin_mux.h"
+ #include "clock_config.h"
+ #include "board.h"
++#include "boot.h"
+ 
+ #if defined(FSL_FEATURE_SOC_DCP_COUNT) && (FSL_FEATURE_SOC_DCP_COUNT > 0)
+ #include "fsl_dcp.h"
+@@ -24,11 +25,7 @@
+ /*******************************************************************************
+  * Definitions
+  ******************************************************************************/
+-#ifdef SOC_REMAP_ENABLE
+-#define REMAPADDRSTART  0x400AC078
+-#define REMAPADDREND    0x400AC07C
+-#define REMAPADDROFFSET 0x400AC080
+-#endif
++
+ /*******************************************************************************
+  * Prototypes
+  ******************************************************************************/
+@@ -39,6 +36,36 @@ extern int isp_kboot_main(bool isInfiniteIsp);
+ /*******************************************************************************
+  * Code
+  ******************************************************************************/
++#ifdef CONFIG_MCUBOOT_FLASH_REMAP_ENABLE
++
++#define IOMUXC_GPR_GPR30_REG 0x400AC078 /* Flash remapping start address  */
++#define IOMUXC_GPR_GPR31_REG 0x400AC07C /* Flash remapping end address    */
++#define IOMUXC_GPR_GPR32_REG 0x400AC080 /* Flash remapping offset address */
++
++void SBL_EnableRemap(uint32_t start_addr, uint32_t end_addr, uint32_t off)
++{
++    uint32_t *remap_start  = (uint32_t *)IOMUXC_GPR_GPR30_REG;
++    uint32_t *remap_end    = (uint32_t *)IOMUXC_GPR_GPR31_REG;
++    uint32_t *remap_offset = (uint32_t *)IOMUXC_GPR_GPR32_REG;
++
++    *remap_start  = start_addr;
++    *remap_end    = end_addr;
++    *remap_offset = off;
++}
++
++void SBL_DisableRemap(void)
++{
++    uint32_t *remap_start  = (uint32_t *)IOMUXC_GPR_GPR30_REG;
++    uint32_t *remap_end    = (uint32_t *)IOMUXC_GPR_GPR31_REG;
++    uint32_t *remap_offset = (uint32_t *)IOMUXC_GPR_GPR32_REG;
++
++    /* Disable offset first! */
++    *remap_offset = 0;
++    *remap_start  = 0;
++    *remap_end    = 0;
++}
++#endif
++
+ /*!
+  * @brief Main function
+  */
+@@ -59,6 +86,14 @@ int main(void)
+ 
+     PRINTF("hello sbl.\r\n");
+ 
++#if defined(MCUBOOT_DIRECT_XIP) && defined(CONFIG_MCUBOOT_FLASH_REMAP_ENABLE)
++    /* Make sure flash remapping function is disabled before running the
++     * bootloader application .
++     */
++    PRINTF("Disabling flash remapping function\n");
++    SBL_DisableRemap();
++#endif
++
+     (void)sbl_boot_main();
+ 
+     return 0;
+@@ -76,27 +111,3 @@ void SBL_DisablePeripherals(void)
+ #endif
+ #endif
+ }
+-
+-#ifdef SOC_REMAP_ENABLE
+-void SBL_EnableRemap(uint32_t start_addr, uint32_t end_addr, uint32_t off)
+-{
+-    uint32_t *remap_start  = (uint32_t *)REMAPADDRSTART;
+-    uint32_t *remap_end    = (uint32_t *)REMAPADDREND;
+-    uint32_t *remap_offset = (uint32_t *)REMAPADDROFFSET;
+-
+-    *remap_start  = start_addr;
+-    *remap_end    = end_addr;
+-    *remap_offset = off;
+-}
+-
+-void SBL_DisableRemap(void)
+-{
+-    uint32_t *remap_start  = (uint32_t *)REMAPADDRSTART;
+-    uint32_t *remap_end    = (uint32_t *)REMAPADDREND;
+-    uint32_t *remap_offset = (uint32_t *)REMAPADDROFFSET;
+-
+-    *remap_start  = 0;
+-    *remap_end    = 0;
+-    *remap_offset = 0;
+-}
+-#endif
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/sbl_boot.c b/boards/evkbmimxrt1060/mcuboot_opensource/sbl_boot.c
+index b21e4bb..58fa4fd 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/sbl_boot.c
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/sbl_boot.c
+@@ -49,10 +49,6 @@ extern void SBL_DisablePeripherals(void);
+ extern int isp_kboot_main(bool isInfiniteIsp);
+ #endif
+ 
+-#ifdef SOC_REMAP_ENABLE
+-int boot_remap_go(struct boot_rsp *rsp);
+-#endif
+-
+ #ifdef CONFIG_BOOT_SIGNATURE
+ status_t CRYPTO_InitHardware(void);
+ #endif
+@@ -267,12 +263,8 @@ int sbl_boot_main(void)
+ 
+ #ifdef SINGLE_IMAGE
+     rc = boot_single_go(&rsp);
+-#else
+-#ifdef SOC_REMAP_ENABLE
+-    rc = boot_remap_go(&rsp);
+ #else
+     rc = boot_go(&rsp);
+-#endif
+ #endif /* SINGLE_IMAGE*/
+     if (rc != 0)
+     {
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/sblconfig.h b/boards/evkbmimxrt1060/mcuboot_opensource/sblconfig.h
+index 2ee0ea7..84145db 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/sblconfig.h
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/sblconfig.h
+@@ -19,6 +19,25 @@
+ 
+ #define CONFIG_MCUBOOT_MAX_IMG_SECTORS 800
+ 
++/*
++ * MCUBoot upgrade mode
++ *
++ * The default MCUBoot configuration is to use swap mechanism. In case the flash
++ * remapping functionality is supported by processor the alternative mechanism
++ * using direct-xip mode can be used and evaluated by user.
++ */
++#define CONFIG_MCUBOOT_FLASH_REMAP_ENABLE 1
++
++/*
++ * Downgrade is not supported in MCUBoot using direct-xip mode because the active
++ * image with highest version is always chosen. This define enables code in
++ * bootloader and OTA application to support downgrade.
++ */
++#define CONFIG_MCUBOOT_FLASH_REMAP_DOWNGRADE_SUPPORT 1
++
++/* Board specific register for flash remap functionality */
++#define FLASH_REMAP_OFFSET_REG 0x400AC080 /* RT1060 flash remap offset register */
++
+ /* MCU SBL Flash Map */
+ 
+ /* MCU SBL metadata header */
+diff --git a/middleware/mcuboot_opensource/boot/bootutil/include/bootutil/boot_hooks.h b/middleware/mcuboot_opensource/boot/bootutil/include/bootutil/boot_hooks.h
+index 61de3c4..9cda5b0 100644
+--- a/middleware/mcuboot_opensource/boot/bootutil/include/bootutil/boot_hooks.h
++++ b/middleware/mcuboot_opensource/boot/bootutil/include/bootutil/boot_hooks.h
+@@ -34,6 +34,8 @@
+ #ifndef H_BOOTUTIL_HOOKS
+ #define H_BOOTUTIL_HOOKS
+ 
++#include "bootutil/bootutil.h"
++
+ #ifdef MCUBOOT_IMAGE_ACCESS_HOOKS
+ 
+ #define BOOT_HOOK_CALL(f, ret_default, ...) f(__VA_ARGS__)
+@@ -157,4 +159,20 @@ int boot_serial_uploaded_hook(int img_index, const struct flash_area *area,
+ int boot_img_install_stat_hook(int image_index, int slot,
+                                int *img_install_stat);
+ 
++/** Hook for implement the alternate way to choose active slot than by examining
++ *  the slots with highest version in direct-xip mode.
++ *
++ * By default the active slot is chosen by the highest version number. This way 
++ * the user can adjust the execution flow for example provide mechanics to 
++ * support downgrade option etc.
++ *
++ * @param state Boot loader status information.
++ * @param candidate_slot Pointer to store found candidate slot
++ *
++ * @retval 0: found candidate slot, skip finding slot by version
++ *         BOOT_HOOK_REGULAR: follow the normal execution path, value of 
++ *         candidate_slot is unchanged
++ */
++int boot_find_active_slot_hook(struct boot_loader_state *state, uint32_t *candidate_slot);
++
+ #endif /*H_BOOTUTIL_HOOKS*/
+diff --git a/middleware/mcuboot_opensource/boot/bootutil/src/bootutil_priv.h b/middleware/mcuboot_opensource/boot/bootutil/src/bootutil_priv.h
+index 4085b54..972303b 100644
+--- a/middleware/mcuboot_opensource/boot/bootutil/src/bootutil_priv.h
++++ b/middleware/mcuboot_opensource/boot/bootutil/src/bootutil_priv.h
+@@ -174,7 +174,7 @@ _Static_assert(sizeof(boot_img_magic) == BOOT_MAGIC_SZ, "Invalid size for image
+ #define BOOT_MAX_IMG_SECTORS       MCUBOOT_MAX_IMG_SECTORS
+ 
+ #define BOOT_LOG_IMAGE_INFO(slot, hdr)                                    \
+-    BOOT_LOG_INF("%-9s slot: version=%u.%u.%u+%u",                        \
++    BOOT_LOG_INF("%s slot: version=%u.%u.%u+%u",                        \
+                  ((slot) == BOOT_PRIMARY_SLOT) ? "Primary" : "Secondary", \
+                  (hdr)->ih_ver.iv_major,                                  \
+                  (hdr)->ih_ver.iv_minor,                                  \
+diff --git a/middleware/mcuboot_opensource/boot/bootutil/src/loader.c b/middleware/mcuboot_opensource/boot/bootutil/src/loader.c
+index 6f6343c..3cb7870 100644
+--- a/middleware/mcuboot_opensource/boot/bootutil/src/loader.c
++++ b/middleware/mcuboot_opensource/boot/bootutil/src/loader.c
+@@ -2987,8 +2991,10 @@ boot_load_and_validate_images(struct boot_loader_state *state)
+                 /* A slot is already active, go to next image. */
+                 break;
+             }
+-
+-            active_slot = find_slot_with_highest_version(state);
++            rc = BOOT_HOOK_CALL(boot_find_active_slot_hook, BOOT_HOOK_REGULAR, state, &active_slot);
++            if (rc == BOOT_HOOK_REGULAR){
++              active_slot = find_slot_with_highest_version(state);
++            }
+             if (active_slot == NO_ACTIVE_SLOT) {
+                 BOOT_LOG_INF("No slot to load for image %d",
+                              BOOT_CURR_IMG(state));
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/secure/sign-rsa2048-pub.c b/boards/evkbmimxrt1060/mcuboot_opensource/secure/sign-rsa2048-pub.c
+index 218b99e..0f064da 100644
+--- a/boards/evkbmimxrt1060/mcuboot_opensource/secure/sign-rsa2048-pub.c
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/secure/sign-rsa2048-pub.c
+@@ -1,38 +1,38 @@
+ /* Autogenerated by imgtool.py, do not edit. */
+ const unsigned char rsa_pub_key[] = {
+     0x30, 0x82, 0x01, 0x0a, 0x02, 0x82, 0x01, 0x01,
+-    0x00, 0xdb, 0x6f, 0x69, 0x51, 0x69, 0xb8, 0xdc,
+-    0xb0, 0x63, 0x0c, 0x98, 0x1a, 0x4a, 0x4a, 0x56,
+-    0xf4, 0x0d, 0x8d, 0xc2, 0x71, 0xe4, 0x7d, 0x87,
+-    0x9d, 0x39, 0x9f, 0xb8, 0x91, 0x64, 0x01, 0x34,
+-    0x4e, 0xde, 0xaf, 0xc0, 0xc4, 0xb7, 0xa4, 0x48,
+-    0x60, 0x02, 0x0b, 0x4a, 0xd2, 0x58, 0x51, 0xaf,
+-    0x58, 0x5b, 0x96, 0x01, 0x9e, 0xe5, 0x3d, 0x8a,
+-    0x88, 0x15, 0xf4, 0x50, 0x5c, 0x18, 0xbb, 0xf9,
+-    0x4c, 0xcf, 0x69, 0x9b, 0x6e, 0x5e, 0xe8, 0x89,
+-    0xd9, 0xcd, 0x94, 0x4d, 0x0e, 0xad, 0x80, 0xd9,
+-    0x5f, 0x7e, 0x35, 0x7a, 0xd4, 0x1b, 0xd3, 0x32,
+-    0x20, 0xc6, 0x44, 0x01, 0x8f, 0xc9, 0xab, 0x4d,
+-    0x37, 0xe5, 0x79, 0x7b, 0xf4, 0xd6, 0x97, 0xd0,
+-    0xd4, 0xf8, 0x29, 0x90, 0x22, 0xad, 0x2b, 0xe7,
+-    0x01, 0x50, 0xef, 0x16, 0x6f, 0x33, 0x79, 0x18,
+-    0x64, 0xea, 0xaf, 0x15, 0x58, 0x8a, 0x98, 0xad,
+-    0x3f, 0x6d, 0xed, 0x82, 0x90, 0x8c, 0x26, 0xd4,
+-    0x12, 0x72, 0xf9, 0x4f, 0xcd, 0x4f, 0x29, 0xc5,
+-    0x33, 0x20, 0xe0, 0xc8, 0x7c, 0x43, 0x17, 0x24,
+-    0x38, 0xa1, 0xf9, 0xa3, 0xf3, 0x68, 0x06, 0x95,
+-    0x7b, 0x08, 0xb6, 0xcf, 0x73, 0x7c, 0xee, 0xa4,
+-    0xee, 0x7e, 0x44, 0x8c, 0xc3, 0x51, 0x0a, 0xe9,
+-    0xc0, 0x81, 0x6d, 0x84, 0xce, 0x8c, 0x24, 0x7c,
+-    0xdf, 0xb8, 0xa7, 0xbd, 0x14, 0x63, 0xc9, 0xcb,
+-    0x88, 0xb3, 0x4a, 0x2c, 0xa1, 0xba, 0x92, 0x40,
+-    0xe6, 0xe2, 0xdc, 0xda, 0x9b, 0x98, 0x1a, 0x1a,
+-    0x18, 0x7b, 0xd9, 0xc2, 0xcf, 0x24, 0xf2, 0x6e,
+-    0x5a, 0x22, 0x27, 0xdb, 0xa4, 0x90, 0x7e, 0x6b,
+-    0x08, 0x0e, 0x29, 0x5b, 0x0b, 0x9c, 0xd6, 0xd2,
+-    0x50, 0xe2, 0xbc, 0x2a, 0x74, 0x0f, 0x40, 0x20,
+-    0x41, 0xf6, 0x4e, 0x12, 0xca, 0x0b, 0xa7, 0xd4,
+-    0x73, 0x7a, 0x29, 0x85, 0xe5, 0x50, 0xc7, 0x43,
+-    0xe3, 0x02, 0x03, 0x01, 0x00, 0x01,
++    0x00, 0xd1, 0x06, 0x08, 0x1a, 0x18, 0x44, 0x2c,
++    0x18, 0xe8, 0xfb, 0xfd, 0xf7, 0x0d, 0xa3, 0x4f,
++    0x1f, 0xbb, 0xee, 0x5e, 0xf9, 0xaa, 0xd2, 0x4b,
++    0x18, 0xd3, 0x5a, 0xe9, 0x6d, 0x18, 0x80, 0x19,
++    0xf9, 0xf0, 0x9c, 0x34, 0x1b, 0xcb, 0xf3, 0xbc,
++    0x74, 0xdb, 0x42, 0xe7, 0x8c, 0x7f, 0x10, 0x53,
++    0x7e, 0x43, 0x5e, 0x0d, 0x57, 0x2c, 0x44, 0xd1,
++    0x67, 0x08, 0x0f, 0x0d, 0xbb, 0x5c, 0xee, 0xec,
++    0xb3, 0x99, 0xdf, 0xe0, 0x4d, 0x84, 0x0b, 0xaa,
++    0x77, 0x41, 0x60, 0xed, 0x15, 0x28, 0x49, 0xa7,
++    0x01, 0xb4, 0x3c, 0x10, 0xe6, 0x69, 0x8c, 0x2f,
++    0x5f, 0xac, 0x41, 0x4d, 0x9e, 0x5c, 0x14, 0xdf,
++    0xf2, 0xf8, 0xcf, 0x3d, 0x1e, 0x6f, 0xe7, 0x5b,
++    0xba, 0xb4, 0xa9, 0xc8, 0x88, 0x7e, 0x47, 0x3c,
++    0x94, 0xc3, 0x77, 0x67, 0x54, 0x4b, 0xaa, 0x8d,
++    0x38, 0x35, 0xca, 0x62, 0x61, 0x7e, 0xb7, 0xe1,
++    0x15, 0xdb, 0x77, 0x73, 0xd4, 0xbe, 0x7b, 0x72,
++    0x21, 0x89, 0x69, 0x24, 0xfb, 0xf8, 0x65, 0x6e,
++    0x64, 0x3e, 0xc8, 0x0e, 0xd7, 0x85, 0xd5, 0x5c,
++    0x4a, 0xe4, 0x53, 0x0d, 0x2f, 0xff, 0xb7, 0xfd,
++    0xf3, 0x13, 0x39, 0x83, 0x3f, 0xa3, 0xae, 0xd2,
++    0x0f, 0xa7, 0x6a, 0x9d, 0xf9, 0xfe, 0xb8, 0xce,
++    0xfa, 0x2a, 0xbe, 0xaf, 0xb8, 0xe0, 0xfa, 0x82,
++    0x37, 0x54, 0xf4, 0x3e, 0xe1, 0x2b, 0xd0, 0xd3,
++    0x08, 0x58, 0x18, 0xf6, 0x5e, 0x4c, 0xc8, 0x88,
++    0x81, 0x31, 0xad, 0x5f, 0xb0, 0x82, 0x17, 0xf2,
++    0x8a, 0x69, 0x27, 0x23, 0xf3, 0xab, 0x87, 0x3e,
++    0x93, 0x1a, 0x1d, 0xfe, 0xe8, 0xf8, 0x1a, 0x24,
++    0x66, 0x59, 0xf8, 0x1c, 0xab, 0xdc, 0xce, 0x68,
++    0x1b, 0x66, 0x64, 0x35, 0xec, 0xfa, 0x0d, 0x11,
++    0x9d, 0xaf, 0x5c, 0x3a, 0xa7, 0xd1, 0x67, 0xc6,
++    0x47, 0xef, 0xb1, 0x4b, 0x2c, 0x62, 0xe1, 0xd1,
++    0xc9, 0x02, 0x03, 0x01, 0x00, 0x01,
+ };
+ const unsigned int rsa_pub_key_len = 270;
+diff --git a/boards/evkbmimxrt1060/mcuboot_opensource/bootutil_hooks.c b/boards/evkbmimxrt1060/mcuboot_opensource/bootutil_hooks.c
+new file mode 100644
+index 0000000..fc1f52c
+--- /dev/null
++++ b/boards/evkbmimxrt1060/mcuboot_opensource/bootutil_hooks.c
+@@ -0,0 +1,71 @@
++/*
++ * Copyright (c) 2016, Freescale Semiconductor, Inc.
++ * Copyright 2017 NXP. Not a Contribution
++ * All rights reserved.
++ *
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include "bootutil/bootutil_public.h"
++#include "bootutil/boot_hooks.h"
++#include "bootutil_priv.h"
++
++#include "fsl_debug_console.h"
++
++int boot_read_image_header_hook(int img_index, int slot, struct image_header *img_head)
++{
++    return BOOT_HOOK_REGULAR;
++}
++
++fih_int boot_image_check_hook(int img_index, int slot)
++{
++    return BOOT_HOOK_REGULAR;
++}
++
++int boot_perform_update_hook(int img_index, struct image_header *img_head, const struct flash_area *area)
++{
++    return BOOT_HOOK_REGULAR;
++}
++
++int boot_copy_region_post_hook(int img_index, const struct flash_area *area, size_t size)
++{
++    return 0;
++}
++
++int boot_read_swap_state_primary_slot_hook(int image_index, struct boot_swap_state *state)
++{
++    return BOOT_HOOK_REGULAR;
++}
++
++int boot_find_active_slot_hook(struct boot_loader_state *state, uint32_t *candidate_slot)
++{
++#if defined(MCUBOOT_IMAGE_ACCESS_HOOKS) && defined(MCUBOOT_DIRECT_XIP)
++
++    uint32_t slot;
++    int rc;
++    struct boot_swap_state swap_states[BOOT_NUM_SLOTS];
++    uint8_t image_index = BOOT_CURR_IMG(state);
++
++    rc = boot_read_swap_state_by_id(FLASH_AREA_IMAGE_PRIMARY(image_index), &swap_states[BOOT_PRIMARY_SLOT]);
++    assert(rc == 0);
++    rc = boot_read_swap_state_by_id(FLASH_AREA_IMAGE_SECONDARY(image_index), &swap_states[BOOT_SECONDARY_SLOT]);
++    assert(rc == 0);
++
++    for (slot = 0; slot < BOOT_NUM_SLOTS; slot++)
++    {
++        /* is slot in test state or marked as permanent (image_ok = set)? */
++        if (state->slot_usage[BOOT_CURR_IMG(state)].slot_available[slot] && swap_states[slot].magic == 0x1)
++        {
++            if (swap_states[slot].copy_done != BOOT_FLAG_SET)
++            {
++                *candidate_slot = slot;
++                PRINTF("Found a candidate in slot %X\n", slot);
++                return 0;
++            }
++        }
++    }
++
++#endif
++    return BOOT_HOOK_REGULAR;
++}
