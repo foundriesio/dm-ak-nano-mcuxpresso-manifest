@@ -94,6 +94,11 @@ manifest:
       revision: 2022_Milestone_2
       url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
+    - name: aktualizr-nano
+      path: foundriesio/aktualizr-nano
+      revision: main
+      url: https://github.com/detsch/aktualizr-nano.git
+
     - name: libtufnano
       path: foundriesio/libtufnano
       revision: 2022_Milestone_2
