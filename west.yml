@@ -15,7 +15,7 @@ manifest:
   
   remotes:
     - name: nxpmicro
-      url-base: https://github.com/NXPmicro
+      url-base: https://github.com/nxp-mcuxpresso
     - name: nxp
       url-base: https://github.com/NXP
     - name: freertos
@@ -28,11 +28,11 @@ manifest:
 
   projects:
     - name: mcux-sdk
-      revision: MCUX_2.12.0_UPDATE
+      revision: MCUX_2.13.0_UPDATE
       path: mcuxsdk
 
     - name: FreeRTOS-Kernel
-      revision: MCUX_2.12.0
+      revision: MCUX_2.13.0
       path: rtos/freertos/freertos_kernel
 
     - name: Unity
@@ -42,11 +42,15 @@ manifest:
 
     - name: mbedtls
       path: middleware/mbedtls
-      revision: MCUX_2.12.0
+      revision: MCUX_2.13.0
 
     - name: lwip
       path: middleware/lwip
-      revision: MCUX_2.12.0
+      revision: MCUX_2.13.0
+
+    - name: CMSIS_5
+      path: middleware/CMSIS_5
+      revision: MCUX_2.13.0
 
     - name: coreJSON
       path: middleware/freertos/coreJSON
