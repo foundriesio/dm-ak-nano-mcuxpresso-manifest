@@ -96,12 +96,12 @@ manifest:
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
       revision: poc_2023_test
-      url: https://github.com/detsch/dm-ak-nano-mcuxpresso.git
+      url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
     - name: aktualizr-nano
       path: foundriesio/aktualizr-nano
       revision: poc_2023_test
-      url: https://github.com/detsch/aktualizr-nano.git
+      url: https://github.com/foundriesio/aktualizr-nano.git
 
     - name: libtufnano
       path: foundriesio/libtufnano
