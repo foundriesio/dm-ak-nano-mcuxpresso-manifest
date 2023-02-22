@@ -113,5 +113,10 @@ manifest:
       revision: "v04.02.00"
       remote: nxp
 
+    - name: inih
+      path: middleware/inih
+      revision: r56
+      url: https://github.com/benhoyt/inih.git
+
   self:
     path: poc
