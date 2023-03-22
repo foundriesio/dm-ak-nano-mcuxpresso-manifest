@@ -12,7 +12,7 @@
 # https://docs.zephyrproject.org/latest/guides/west/index.html
 
 manifest:
-  
+
   remotes:
     - name: nxpmicro
       url-base: https://github.com/nxp-mcuxpresso
@@ -87,7 +87,7 @@ manifest:
       path: middleware/freertos/backoffAlgorithm
       revision: "v1.2.0"
       remote: freertos
-    
+
     - name: http-parser
       path: middleware/http-parser
       revision: "v2.9.4"
@@ -95,12 +95,12 @@ manifest:
 
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
-      revision: 4c7f8b48e1ee9d755bfb1f5b7fa9a827be5457d0
+      revision: ba53b4c2c112f9da6796ecd3e9136901a64a0afa
       url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
     - name: aktualizr-nano
       path: foundriesio/aktualizr-nano
-      revision: 9d222d1c45b4a047a55ebe9b5126378fa84097fb
+      revision: a9597a261206fda772aa34aad24f55d67943796d
       url: https://github.com/foundriesio/aktualizr-nano.git
 
     - name: libtufnano
