@@ -118,5 +118,15 @@ manifest:
       revision: r56
       url: https://github.com/benhoyt/inih.git
 
+    - name: coreMQTT-Agent
+      path: middleware/coreMQTT-Agent
+      revision: v1.1.0
+      remote: freertos
+
+    - name: coreMQTT
+      path: middleware/coreMQTT
+      revision: v1.2.0
+      remote: freertos
+
   self:
     path: poc
