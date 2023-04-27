@@ -100,7 +100,7 @@ manifest:
 
     - name: aktualizr-nano
       path: foundriesio/aktualizr-nano
-      revision: 3b597ea06c85070e05e5f024db30aee41f266c48
+      revision: fcf4822a1eb919ef185790641c635fab9d5d3c03
       url: https://github.com/foundriesio/aktualizr-nano.git
 
     - name: libtufnano
