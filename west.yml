@@ -95,17 +95,17 @@ manifest:
 
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
-      revision: 24f91d89a9eac8120ade23122c8df222157b43af
+      revision: c6a90445ca398f643754f98b5b9f668362de730c
       url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
     - name: aktualizr-nano
       path: foundriesio/aktualizr-nano
-      revision: fcf4822a1eb919ef185790641c635fab9d5d3c03
+      revision: 739e03890cb10ccc6095f451d862dcec69eaf5ee
       url: https://github.com/foundriesio/aktualizr-nano.git
 
     - name: libtufnano
       path: foundriesio/libtufnano
-      revision: bdbf14b7a46fd46d3afef8f29b009ffdaa4df51f
+      revision: f19c18bcbc64fe3838547495844656eb103b3a2d
       url: https://github.com/foundriesio/libtufnano.git
 
     - name: plug-and-trust
