@@ -110,7 +110,7 @@ manifest:
 
     - name: plug-and-trust
       path: middleware/plug-and-trust
-      revision: "v04.02.00"
+      revision: "v04.03.01"
       remote: nxp
 
     - name: inih
