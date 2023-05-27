@@ -1,5 +1,5 @@
 /*
- * Amazon FreeRTOS PKCS#11 for A71CH V1.0.0
+ * Amazon FreeRTOS PKCS#11 for NXP Secure element
  * Copyright (C) 2017 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  * Copyright 2018 NXP
  *
@@ -621,6 +621,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)
     sss_asymmetric_t asymmCtx;
     sss_algorithm_t algorithm;
     sss_algorithm_t digest_algorithm;
+    sss_mac_t ctx_hmac = {0};
 #endif
 
     /*
@@ -690,7 +691,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)
     uint8_t data[2048] = {0};
     size_t dataLen     = sizeof(data);
     if (pxSessionObj->xOperationInProgress != CKM_RSA_PKCS_PSS && pxSessionObj->xOperationInProgress != CKM_ECDSA &&
-        pxSessionObj->xOperationInProgress != CKM_RSA_PKCS) {
+        pxSessionObj->xOperationInProgress != CKM_RSA_PKCS && pxSessionObj->xOperationInProgress != CKM_SHA256_HMAC) {
         sss_digest_t digestCtx = {0};
         size_t i               = 0;
 
@@ -703,7 +704,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)
         LOCK_MUTEX_FOR_RTOS
         {
             status = sss_digest_context_init(
-                &digestCtx, &pex_sss_demo_boot_ctx->session, digest_algorithm, kMode_SSS_Digest);
+                &digestCtx, &pex_sss_demo_boot_ctx->host_session, digest_algorithm, kMode_SSS_Digest);
             if (status != kStatus_SSS_Success) {
                 pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
                 UNLOCK_MUTEX_FOR_RTOS_RET(CKR_DEVICE_ERROR);
@@ -766,32 +767,55 @@ CK_DEFINE_FUNCTION(CK_RV, C_Verify)
             UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
         }
 
-        status = sss_asymmetric_context_init(
-            &asymmCtx, &pex_sss_demo_boot_ctx->session, &object, algorithm, kMode_SSS_Verify);
-        if (status != kStatus_SSS_Success) {
-            LOG_E(" sss_asymmetric_context_init verify context Failed...");
-            UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
-        }
-
-        uint8_t buff[2048] = {0};
-        size_t buffLen     = sizeof(buff);
-        if (asymmCtx.keyObject->cipherType == kSSS_CipherType_EC_NIST_P) {
-            xResult = EcRandSToSignature((uint8_t *)pucSignature, (size_t)ulSignatureLen, &buff[0], &buffLen);
+        /* Checking for HMAC and validating */
+        if (algorithm == kAlgorithm_SSS_HMAC_SHA256) {
+            status = sss_mac_context_init(
+                &ctx_hmac, &pex_sss_demo_boot_ctx->session, &object, algorithm, kMode_SSS_Mac_Validate);
+            if (status != kStatus_SSS_Success) {
+                LOG_E(" sss_mac_context_init Failed...");
+                pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
+                UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
+            }
+            uint8_t hmacOutput[32] = {0};
+            size_t hmacOutputLen   = sizeof(hmacOutput);
+            memcpy(&hmacOutput[0], pucSignature, ulSignatureLen);
+            hmacOutputLen = ulSignatureLen;
+            status        = sss_mac_one_go(&ctx_hmac, &data[0], dataLen, hmacOutput, &hmacOutputLen);
+            if (status != kStatus_SSS_Success) {
+                sss_mac_context_free(&ctx_hmac);
+                LOG_E(" sss_mac_one_go Failed...");
+                xResult = CKR_FUNCTION_FAILED;
+            }
+            sss_mac_context_free(&ctx_hmac);
         }
         else {
-            memcpy(&buff[0], pucSignature, ulSignatureLen);
-            buffLen = ulSignatureLen;
-        }
-
-        if (xResult == CKR_OK) {
-            status = sss_asymmetric_verify_digest(&asymmCtx, &data[0], dataLen, buff, buffLen);
+            status = sss_asymmetric_context_init(
+                &asymmCtx, &pex_sss_demo_boot_ctx->session, &object, algorithm, kMode_SSS_Verify);
             if (status != kStatus_SSS_Success) {
-                LOG_E(" sss_asymmetric_verify_digest Failed... %08x", status);
-                xResult = CKR_SIGNATURE_INVALID;
+                LOG_E(" sss_asymmetric_context_init verify context Failed...");
+                UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
             }
-        }
 
-        sss_asymmetric_context_free(&asymmCtx);
+            uint8_t buff[2048] = {0};
+            size_t buffLen     = sizeof(buff);
+            if (asymmCtx.keyObject->cipherType == kSSS_CipherType_EC_NIST_P) {
+                xResult = EcRandSToSignature((uint8_t *)pucSignature, (size_t)ulSignatureLen, &buff[0], &buffLen);
+            }
+            else {
+                memcpy(&buff[0], pucSignature, ulSignatureLen);
+                buffLen = ulSignatureLen;
+            }
+
+            if (xResult == CKR_OK) {
+                status = sss_asymmetric_verify_digest(&asymmCtx, &data[0], dataLen, buff, buffLen);
+                if (status != kStatus_SSS_Success) {
+                    LOG_E(" sss_asymmetric_verify_digest Failed... %08x", status);
+                    xResult = CKR_SIGNATURE_INVALID;
+                }
+            }
+
+            sss_asymmetric_context_free(&asymmCtx);
+        }
 
         UNLOCK_MUTEX_FOR_RTOS
     }
@@ -812,9 +836,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)
 {
     CK_RV xResult = CKR_OK;
     LOG_D("%s", __FUNCTION__);
-
     P11SessionPtr_t pxSessionObj = prvSessionPointerFromHandle(xSession);
-
     if (pxSessionObj == NULL) {
         xResult = CKR_SESSION_HANDLE_INVALID;
         return xResult;
@@ -836,6 +858,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)
     sss_asymmetric_t asymmCtx;
     sss_algorithm_t algorithm = kAlgorithm_None;
     sss_algorithm_t digest_algorithm;
+    sss_mac_t ctx_hmac = {0};
 
     xResult = ParseSignMechanism(pxSessionObj, &algorithm);
     // printf("\nParsed algorithm = %d\n", algorithm);
@@ -893,7 +916,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)
     uint8_t data[2048] = {0};
     size_t dataLen     = sizeof(data);
     if (pxSessionObj->xOperationInProgress == CKM_RSA_PKCS_PSS || pxSessionObj->xOperationInProgress == CKM_ECDSA ||
-        pxSessionObj->xOperationInProgress == CKM_RSA_PKCS) {
+        pxSessionObj->xOperationInProgress == CKM_RSA_PKCS || pxSessionObj->xOperationInProgress == CKM_SHA256_HMAC) {
         if ((algorithm == kAlgorithm_SSS_RSASSA_PKCS1_PSS_MGF1_SHA1) ||
             /* (algorithm == kAlgorithm_SSS_RSASSA_PKCS1_V1_5_SHA1) ||*/ (algorithm == kAlgorithm_SSS_ECDSA_SHA1)) {
             // Check input size
@@ -973,11 +996,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)
             pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
             return xResult;
         }
-
         LOCK_MUTEX_FOR_RTOS
         {
             status = sss_digest_context_init(
-                &digestCtx, &pex_sss_demo_boot_ctx->session, digest_algorithm, kMode_SSS_Digest);
+                &digestCtx, &pex_sss_demo_boot_ctx->host_session, digest_algorithm, kMode_SSS_Digest);
             if (status != kStatus_SSS_Success) {
                 pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
                 UNLOCK_MUTEX_FOR_RTOS_RET(CKR_DEVICE_ERROR);
@@ -1035,42 +1057,75 @@ CK_DEFINE_FUNCTION(CK_RV, C_Sign)
             UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
         }
 
-        status =
-            sss_asymmetric_context_init(&asymmCtx, &pex_sss_demo_boot_ctx->session, &object, algorithm, kMode_SSS_Sign);
-        if (status != kStatus_SSS_Success) {
-            LOG_E(" sss_asymmetric_context_ sign init Failed...");
-            pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
-            UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
-        }
-
-        /* Do Signing */
-        uint8_t signature[512] = {0};
-        size_t sigLen          = sizeof(signature);
-
-        status = sss_asymmetric_sign_digest(&asymmCtx, &data[0], dataLen, &signature[0], &sigLen);
-        if (status != kStatus_SSS_Success) {
-            LOG_E(" sss_asymmetric_sign_digest Failed...");
-            xResult = CKR_FUNCTION_FAILED;
-        }
-        if (xResult == CKR_OK) {
-            if (asymmCtx.keyObject->cipherType == kSSS_CipherType_EC_NIST_P) {
-                xResult = EcSignatureToRandS(signature, &sigLen);
+        /* Checking for HMAC and performing MAC operation */
+        if (algorithm == kAlgorithm_SSS_HMAC_SHA256) {
+            status =
+                sss_mac_context_init(&ctx_hmac, &pex_sss_demo_boot_ctx->session, &object, algorithm, kMode_SSS_Mac);
+            if (status != kStatus_SSS_Success) {
+                LOG_E(" sss_mac_context_init Failed...");
+                pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
+                UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
+            }
+            uint8_t hmacOutput[32] = {0};
+            size_t hmacOutputLen   = sizeof(hmacOutput);
+            status                 = sss_mac_one_go(&ctx_hmac, &data[0], dataLen, &hmacOutput[0], &hmacOutputLen);
+            if (status != kStatus_SSS_Success) {
+                sss_mac_context_free(&ctx_hmac);
+                LOG_E(" sss_mac_one_go Failed...");
+                xResult = CKR_FUNCTION_FAILED;
             }
             if (xResult == CKR_OK) {
                 if (pucSignature) {
-                    if (*pulSignatureLen < sigLen) {
+                    if (*pulSignatureLen < hmacOutputLen) {
                         xResult = CKR_BUFFER_TOO_SMALL;
                     }
                     else {
-                        memcpy(pucSignature, &signature[0], sigLen);
+                        memcpy(pucSignature, &hmacOutput[0], hmacOutputLen);
                         pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
                     }
                 }
-                *pulSignatureLen = sigLen;
+                *pulSignatureLen = hmacOutputLen;
             }
+            sss_mac_context_free(&ctx_hmac);
         }
+        else {
+            status = sss_asymmetric_context_init(
+                &asymmCtx, &pex_sss_demo_boot_ctx->session, &object, algorithm, kMode_SSS_Sign);
+            if (status != kStatus_SSS_Success) {
+                LOG_E(" sss_asymmetric_context_ sign init Failed...");
+                pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
+                UNLOCK_MUTEX_FOR_RTOS_RET(CKR_FUNCTION_FAILED)
+            }
 
-        sss_asymmetric_context_free(&asymmCtx);
+            /* Do Signing */
+            uint8_t signature[512] = {0};
+            size_t sigLen          = sizeof(signature);
+
+            status = sss_asymmetric_sign_digest(&asymmCtx, &data[0], dataLen, &signature[0], &sigLen);
+            if (status != kStatus_SSS_Success) {
+                LOG_E(" sss_asymmetric_sign_digest Failed...");
+                xResult = CKR_FUNCTION_FAILED;
+            }
+            if (xResult == CKR_OK) {
+                if (asymmCtx.keyObject->cipherType == kSSS_CipherType_EC_NIST_P) {
+                    xResult = EcSignatureToRandS(signature, &sigLen);
+                }
+                if (xResult == CKR_OK) {
+                    if (pucSignature) {
+                        if (*pulSignatureLen < sigLen) {
+                            xResult = CKR_BUFFER_TOO_SMALL;
+                        }
+                        else {
+                            memcpy(pucSignature, &signature[0], sigLen);
+                            pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;
+                        }
+                    }
+                    *pulSignatureLen = sigLen;
+                }
+            }
+
+            sss_asymmetric_context_free(&asymmCtx);
+        }
 
         UNLOCK_MUTEX_FOR_RTOS
     }
@@ -1176,7 +1231,7 @@ exit:
 static uint8_t CheckIfKeyIdExists(uint32_t keyId, pSe05xSession_t session_ctx)
 {
     smStatus_t retStatus    = SM_NOT_OK;
-    SE05x_Result_t IdExists = 0;
+    SE05x_Result_t IdExists = kSE05x_Result_NA;
     uint8_t exists          = 0;
 
     LOCK_MUTEX_FOR_RTOS
@@ -1199,39 +1254,6 @@ static uint8_t CheckIfKeyIdExists(uint32_t keyId, pSe05xSession_t session_ctx)
 }
 
 #endif
-
-/**
- * Extend the byte array \p pStore with 0x00 byte(s). This is typically required when
- * a big integer has - previously - been stripped from its (superfluous) sign bits.
- * The caller must ensure \p expectedLength is bigger than \p actualLength
- * @param[in,out]   pStore  Array representation of big number, to be zero sign extended.
- *      Size of corresponding buffer must be at least \p expectedLength
- * @param[in]       actualLength Length of incoming array \p pStore
- * @param[in]       expectedLength Zero sign extend until this length.
- *
- * @retval SW_OK In case of successfull execution
- * @retval ERR_API_ERROR Requested adjustment would result in truncation
- */
-U16 axZeroSignExtend(U8 *pStore, U16 actualLength, U16 expectedLength)
-{
-    U16 sw = SW_OK;
-
-    int numExtraByte = (int)expectedLength - (int)actualLength;
-
-    if (numExtraByte == 0) {
-        // Do nothing
-    }
-    else if (numExtraByte < 0) {
-        // Flag an API error
-        sw = ERR_API_ERROR;
-    }
-    else {
-        memmove(pStore + numExtraByte, pStore, actualLength);
-        memset(pStore, 0x00, numExtraByte);
-    }
-
-    return sw;
-}
 
 /**
  * @brief Query the list of interface function pointers.
@@ -1369,6 +1391,8 @@ CK_DEFINE_FUNCTION(CK_RV, C_Finalize)(CK_VOID_PTR pvReserved)
 CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)
 (CK_SLOT_ID xSlotID, CK_FLAGS xFlags, CK_VOID_PTR pvApplication, CK_NOTIFY xNotify, CK_SESSION_HANDLE_PTR pxSession)
 { /*lint !e9072 It's OK to have different parameter name. */
+    AX_UNUSED_ARG(pvApplication);
+    AX_UNUSED_ARG(xNotify);
     CK_RV xResult                = CKR_OK;
     P11SessionPtr_t pxSessionObj = NULL;
     bool foundEmptySessionSlot   = false;
@@ -1424,6 +1448,25 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)
     if (CKR_OK == xResult) {
         memset(pxSessionObj, 0, sizeof(P11Session_t));
     }
+    else {
+        return xResult;
+    }
+
+    pxSessionObj->pAttrKey = (HandleP11KeyPairPtr_t)SSS_MALLOC(sizeof(HandleP11KeyPair_t));
+    if (NULL == pxSessionObj->pAttrKey) {
+        xResult = CKR_HOST_MEMORY;
+        SSS_FREE(pxSessionObj);
+        return xResult;
+    }
+    memset(pxSessionObj->pAttrKey, 0, sizeof(HandleP11KeyPair_t));
+
+    pxSessionObj->pFindObject = (HandleP11KeyPairPtr_t)SSS_MALLOC(sizeof(HandleP11KeyPair_t));
+    if (NULL == pxSessionObj->pAttrKey) {
+        xResult = CKR_HOST_MEMORY;
+        SSS_FREE(pxSessionObj);
+        return xResult;
+    }
+    memset(pxSessionObj->pFindObject, 0, sizeof(HandleP11KeyPair_t));
 
     /*
      * Initialize RNG.
@@ -1444,6 +1487,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)
 
     if (NULL != pxSessionObj) {
         if (CKR_OK != xResult) {
+            if (NULL != pxSessionObj->pAttrKey) {
+                SSS_FREE(pxSessionObj->pAttrKey);
+            }
+            if (NULL != pxSessionObj->pFindObject) {
+                SSS_FREE(pxSessionObj->pFindObject);
+            }
             SSS_FREE(pxSessionObj);
             return CKR_FUNCTION_FAILED;
         }
@@ -1458,6 +1507,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)
             *pxSession         = (CK_SESSION_HANDLE)(i + 1); // To skip session_id 0
         }
         else {
+            if (NULL != pxSessionObj->pAttrKey) {
+                SSS_FREE(pxSessionObj->pAttrKey);
+            }
+            if (NULL != pxSessionObj->pFindObject) {
+                SSS_FREE(pxSessionObj->pFindObject);
+            }
             SSS_FREE(pxSessionObj);
             return CKR_DEVICE_MEMORY;
         }
@@ -1480,19 +1535,32 @@ CK_DEFINE_FUNCTION(CK_RV, C_OpenSession)
             // if(pex_sss_demo_boot_ctx->session.subsystem == kType_SSS_SubSystem_NONE){
             if (sessionCount == 0) {
                 sss_status_t sss_status = kStatus_SSS_Fail;
-                const char *portName    = g_port_name;
+                char *portName          = g_port_name;
 
+#if defined(T1oI2C)
                 SM_Close(NULL, 0);
+#endif
                 /* If portname is given in ENV */
                 sss_status = ex_sss_boot_connectstring(0, NULL, &portName);
                 sss_status = ex_sss_boot_open(pex_sss_demo_boot_ctx, portName);
+#if defined(_MSC_VER)
+                if (portName) {
+                    char *dummy_portName = NULL;
+                    size_t dummy_sz      = 0;
+                    _dupenv_s(&dummy_portName, &dummy_sz, EX_SSS_BOOT_SSS_PORT);
+                    if (NULL != dummy_portName) {
+                        free(dummy_portName);
+                        free(portName);
+                    }
+                }
+#endif // _MSC_VER
                 if (sss_status != kStatus_SSS_Success) {
                     LOG_E("Session Open Failed");
                     xResult = CKR_GENERAL_ERROR;
                     goto error;
                 }
 
-#if EX_SSS_BOOT_DO_ERASE
+#if defined(EX_SSS_BOOT_DO_ERASE) && (EX_SSS_BOOT_DO_ERASE == 1)
                 sss_status = ex_sss_boot_factory_reset(pex_sss_demo_boot_ctx);
                 if (sss_status != kStatus_SSS_Success) {
                     LOG_E("Factory Reset failed");
@@ -1564,6 +1632,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CloseSession)(CK_SESSION_HANDLE xSession)
         /*
          * Tear down the session.
          */
+        if (NULL != pxSession->pAttrKey) {
+            SSS_FREE(pxSession->pAttrKey);
+        }
+        if (NULL != pxSession->pFindObject) {
+            SSS_FREE(pxSession->pFindObject);
+        }
 #if defined(USE_RTOS) && USE_RTOS == 1
         vPortFree(pxSession);
 #else
@@ -1768,6 +1842,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignInit)
 CK_DEFINE_FUNCTION(CK_RV, C_GetSlotList)
 (CK_BBOOL xTokenPresent, CK_SLOT_ID_PTR pxSlotList, CK_ULONG_PTR pulCount)
 { /*lint !e9072 It's OK to have different parameter name. */
+    AX_UNUSED_ARG(xTokenPresent);
     CK_RV xResult = CKR_OK;
     LOG_D("%s", __FUNCTION__);
 
@@ -1852,6 +1927,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Decrypt)
 CK_DEFINE_FUNCTION(CK_RV, C_DecryptFinal)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pLastPart, CK_ULONG_PTR pulLastPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pLastPart);
+    AX_UNUSED_ARG(pulLastPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -1906,6 +1984,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptUpdate)
     CK_BYTE_PTR pPart,
     CK_ULONG_PTR pulPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pEncryptedPart);
+    AX_UNUSED_ARG(ulEncryptedPartLen);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(pulPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -1922,6 +2005,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DeriveKey)
     CK_ULONG ulAttributeCount,
     CK_OBJECT_HANDLE_PTR phKey)
 {
+    AX_UNUSED_ARG(hSession);
     LOG_D("%s", __FUNCTION__);
     CK_RV xResult = CKR_FUNCTION_NOT_SUPPORTED;
 #if SSS_HAVE_APPLET_SE05X_IOT
@@ -2096,10 +2180,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_DeriveKey)
 
         if (p_ecdh1Params->pPublicData[i] != 0x00) {
             p_ecPoint++;
+            ENSURE_OR_GO_EXIT(len < (sizeof(ecPoint) - 1));
             memcpy(p_ecPoint, &p_ecdh1Params->pPublicData[i], len);
             len++;
         }
         else {
+            ENSURE_OR_GO_EXIT(len < (sizeof(ecPoint)));
             memcpy(p_ecPoint, &p_ecdh1Params->pPublicData[i], len);
         }
 
@@ -2172,7 +2258,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DeriveKey)
             sss_status = sss_key_object_allocate_handle(&pubKeyObj,
                 publicKeyId,
                 kSSS_KeyPart_Public,
-                privKeyObj.cipherType,
+                (sss_cipher_type_t)privKeyObj.cipherType,
                 keySize * 8,
                 kKeyObject_Mode_Persistent);
             UNLOCK_MUTEX_FOR_RTOS_EXIT_ON_FAIL(sss_status == kStatus_SSS_Success);
@@ -2277,6 +2363,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Digest)
     }
 #if SSS_HAVE_APPLET
     uint8_t *input = (uint8_t *)SSS_MALLOC(ulDataLen * sizeof(uint8_t));
+    if (!input) {
+        xResult = CKR_HOST_MEMORY;
+        return xResult;
+    }
     memset(input, 0, (ulDataLen * sizeof(uint8_t)));
     sss_status_t status = kStatus_SSS_Fail;
     uint8_t output[64]  = {0};
@@ -2362,6 +2452,8 @@ cleanup:
 CK_DEFINE_FUNCTION(CK_RV, C_DigestKey)
 (CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hKey)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(hKey);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2423,6 +2515,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_Encrypt)
 CK_DEFINE_FUNCTION(CK_RV, C_EncryptFinal)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pLastEncryptedPart, CK_ULONG_PTR pulLastEncryptedPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pLastEncryptedPart);
+    AX_UNUSED_ARG(pulLastEncryptedPartLen);
+
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2477,6 +2573,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_EncryptUpdate)
     CK_BYTE_PTR pEncryptedPart,
     CK_ULONG_PTR pulEncryptedPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(ulPartLen);
+    AX_UNUSED_ARG(pEncryptedPart);
+    AX_UNUSED_ARG(pulEncryptedPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2509,6 +2610,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetInfo)(CK_INFO_PTR pInfo)
 CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)
 (CK_SLOT_ID slotID, CK_MECHANISM_TYPE type, CK_MECHANISM_INFO_PTR pInfo)
 {
+    AX_UNUSED_ARG(slotID);
     LOG_D("%s", __FUNCTION__);
 
     CK_RV xResult = CKR_MECHANISM_INVALID;
@@ -2688,6 +2790,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)
         mech_info.flags        = mech_info.flags | CKF_VERIFY;
         xResult                = CKR_OK;
     }
+    else if (type == CKM_SHA256_HMAC) {
+        mech_info.ulMinKeySize = 1024;
+        mech_info.ulMaxKeySize = 4096;
+        mech_info.flags        = mech_info.flags | CKF_SIGN | CKF_VERIFY;
+        xResult                = CKR_OK;
+    }
 
     if (xResult == CKR_OK) {
         memcpy(pInfo, &mech_info, sizeof(CK_MECHANISM_INFO));
@@ -2702,6 +2810,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismInfo)
 CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismList)
 (CK_SLOT_ID slotID, CK_MECHANISM_TYPE_PTR pMechanismList, CK_ULONG_PTR pulCount)
 {
+    AX_UNUSED_ARG(slotID);
     LOG_D("%s", __FUNCTION__);
 
     CK_RV xResult = CKR_OK;
@@ -2744,7 +2853,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetMechanismList)
         CKM_DES2_KEY_GEN,
         CKM_DES3_KEY_GEN,
         /* Key Derivation algorithms */
-        CKM_ECDH1_DERIVE};
+        CKM_ECDH1_DERIVE,
+        /* HMAC algorithms */
+        CKM_SHA256_HMAC};
+
     if (pMechanismList) {
         if (*pulCount < sizeof(mechanisms)) {
             xResult = CKR_BUFFER_TOO_SMALL;
@@ -2790,6 +2902,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetSlotInfo)
 CK_DEFINE_FUNCTION(CK_RV, C_GetTokenInfo)
 (CK_SLOT_ID slotID, CK_TOKEN_INFO_PTR pInfo)
 {
+    AX_UNUSED_ARG(slotID);
     LOG_D("%s", __FUNCTION__);
 
     CK_TOKEN_INFO tokenInfo      = {0};
@@ -2827,6 +2940,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetTokenInfo)
 CK_DEFINE_FUNCTION(CK_RV, C_Login)
 (CK_SESSION_HANDLE hSession, CK_USER_TYPE userType, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(userType);
+    AX_UNUSED_ARG(pPin);
+    AX_UNUSED_ARG(ulPinLen);
     LOG_D("%s", __FUNCTION__);
     return CKR_OK;
 }
@@ -2836,6 +2953,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_Login)
  */
 CK_DEFINE_FUNCTION(CK_RV, C_Logout)(CK_SESSION_HANDLE hSession)
 {
+    AX_UNUSED_ARG(hSession);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_OK;
@@ -2847,6 +2965,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_Logout)(CK_SESSION_HANDLE hSession)
 CK_DEFINE_FUNCTION(CK_RV, C_SeedRandom)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSeed, CK_ULONG ulSeedLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pSeed);
+    AX_UNUSED_ARG(ulSeedLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_OK;
@@ -2858,6 +2979,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_SeedRandom)
 CK_DEFINE_FUNCTION(CK_RV, C_SetAttributeValue)
 (CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, CK_ATTRIBUTE_PTR pTemplate, CK_ULONG ulCount)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(hObject);
+    AX_UNUSED_ARG(pTemplate);
+    AX_UNUSED_ARG(ulCount);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2869,6 +2994,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_SetAttributeValue)
 CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature, CK_ULONG_PTR pulSignatureLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pSignature);
+    AX_UNUSED_ARG(pulSignatureLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2880,6 +3008,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignFinal)
 CK_DEFINE_FUNCTION(CK_RV, C_SignUpdate)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pPart, CK_ULONG ulPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(ulPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2898,6 +3029,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_UnwrapKey)
     CK_ULONG ulAttributeCount,
     CK_OBJECT_HANDLE_PTR phKey)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pMechanism);
+    AX_UNUSED_ARG(hUnwrappingKey);
+    AX_UNUSED_ARG(pWrappedKey);
+    AX_UNUSED_ARG(ulWrappedKeyLen);
+    AX_UNUSED_ARG(pTemplate);
+    AX_UNUSED_ARG(ulAttributeCount);
+    AX_UNUSED_ARG(phKey);
+
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2909,6 +3049,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_UnwrapKey)
 CK_DEFINE_FUNCTION(CK_RV, C_VerifyFinal)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pSignature, CK_ULONG ulSignatureLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pSignature);
+    AX_UNUSED_ARG(ulSignatureLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2920,6 +3063,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyFinal)
 CK_DEFINE_FUNCTION(CK_RV, C_VerifyUpdate)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pPart, CK_ULONG ulPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(ulPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2936,6 +3082,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_WrapKey)
     CK_BYTE_PTR pWrappedKey,
     CK_ULONG_PTR pulWrappedKeyLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pMechanism);
+    AX_UNUSED_ARG(hWrappingKey);
+    AX_UNUSED_ARG(hKey);
+    AX_UNUSED_ARG(pWrappedKey);
+    AX_UNUSED_ARG(pulWrappedKeyLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2947,6 +3099,10 @@ CK_DEFINE_FUNCTION(CK_RV, C_WrapKey)
 CK_DEFINE_FUNCTION(CK_RV, C_InitToken)
 (CK_SLOT_ID slotID, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen, CK_UTF8CHAR_PTR pLabel)
 {
+    AX_UNUSED_ARG(slotID);
+    AX_UNUSED_ARG(pPin);
+    AX_UNUSED_ARG(ulPinLen);
+    AX_UNUSED_ARG(pLabel);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2958,6 +3114,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitToken)
 CK_DEFINE_FUNCTION(CK_RV, C_InitPIN)
 (CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin, CK_ULONG ulPinLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pPin);
+    AX_UNUSED_ARG(ulPinLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2969,6 +3128,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_InitPIN)
 CK_DEFINE_FUNCTION(CK_RV, C_SetPIN)
 (CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pOldPin, CK_ULONG ulOldLen, CK_UTF8CHAR_PTR pNewPin, CK_ULONG ulNewLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pOldPin);
+    AX_UNUSED_ARG(ulOldLen);
+    AX_UNUSED_ARG(pNewPin);
+    AX_UNUSED_ARG(ulNewLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2979,6 +3143,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_SetPIN)
  */
 CK_DEFINE_FUNCTION(CK_RV, C_CloseAllSessions)(CK_SLOT_ID slotID)
 {
+    AX_UNUSED_ARG(slotID);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -2990,6 +3155,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CloseAllSessions)(CK_SLOT_ID slotID)
 CK_DEFINE_FUNCTION(CK_RV, C_GetSessionInfo)
 (CK_SESSION_HANDLE hSession, CK_SESSION_INFO_PTR pInfo)
 {
+    AX_UNUSED_ARG(hSession);
     LOG_D("%s", __FUNCTION__);
     CK_RV xResult = CKR_SESSION_CLOSED;
 #if (__GNUC__ && !AX_EMBEDDED)
@@ -3027,6 +3193,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetSessionInfo)
 CK_DEFINE_FUNCTION(CK_RV, C_GetOperationState)
 (CK_SESSION_HANDLE hSession, CK_BYTE_PTR pOperationState, CK_ULONG_PTR pulOperationStateLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pOperationState);
+    AX_UNUSED_ARG(pulOperationStateLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3042,6 +3211,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_SetOperationState)
     CK_OBJECT_HANDLE hEncryptionKey,
     CK_OBJECT_HANDLE hAuthenticationKey)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pOperationState);
+    AX_UNUSED_ARG(ulOperationStateLen);
+    AX_UNUSED_ARG(hEncryptionKey);
+    AX_UNUSED_ARG(hAuthenticationKey);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3053,6 +3227,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_SetOperationState)
 CK_DEFINE_FUNCTION(CK_RV, C_SignRecoverInit)
 (CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pMechanism);
+    AX_UNUSED_ARG(hKey);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3068,6 +3245,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignRecover)
     CK_BYTE_PTR pSignature,
     CK_ULONG_PTR pulSignatureLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pData);
+    AX_UNUSED_ARG(ulDataLen);
+    AX_UNUSED_ARG(pSignature);
+    AX_UNUSED_ARG(pulSignatureLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3079,6 +3261,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignRecover)
 CK_DEFINE_FUNCTION(CK_RV, C_VerifyRecoverInit)
 (CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism, CK_OBJECT_HANDLE hKey)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pMechanism);
+    AX_UNUSED_ARG(hKey);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3094,6 +3279,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_VerifyRecover)
     CK_BYTE_PTR pData,
     CK_ULONG_PTR pulDataLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pSignature);
+    AX_UNUSED_ARG(ulSignatureLen);
+    AX_UNUSED_ARG(pData);
+    AX_UNUSED_ARG(pulDataLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3109,6 +3299,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_DigestEncryptUpdate)
     CK_BYTE_PTR pEncryptedPart,
     CK_ULONG_PTR pulEncryptedPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(ulPartLen);
+    AX_UNUSED_ARG(pEncryptedPart);
+    AX_UNUSED_ARG(pulEncryptedPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3124,6 +3319,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptDigestUpdate)
     CK_BYTE_PTR pPart,
     CK_ULONG_PTR pulPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pEncryptedPart);
+    AX_UNUSED_ARG(ulEncryptedPartLen);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(pulPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3139,6 +3339,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_SignEncryptUpdate)
     CK_BYTE_PTR pEncryptedPart,
     CK_ULONG_PTR pulEncryptedPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(ulPartLen);
+    AX_UNUSED_ARG(pEncryptedPart);
+    AX_UNUSED_ARG(pulEncryptedPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3154,6 +3359,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptVerifyUpdate)
     CK_BYTE_PTR pPart,
     CK_ULONG_PTR pulPartLen)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(pEncryptedPart);
+    AX_UNUSED_ARG(ulEncryptedPartLen);
+    AX_UNUSED_ARG(pPart);
+    AX_UNUSED_ARG(pulPartLen);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -3164,6 +3374,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DecryptVerifyUpdate)
  */
 CK_DEFINE_FUNCTION(CK_RV, C_GetFunctionStatus)(CK_SESSION_HANDLE hSession)
 {
+    AX_UNUSED_ARG(hSession);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_PARALLEL;
@@ -3174,6 +3385,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetFunctionStatus)(CK_SESSION_HANDLE hSession)
  */
 CK_DEFINE_FUNCTION(CK_RV, C_CancelFunction)(CK_SESSION_HANDLE hSession)
 {
+    AX_UNUSED_ARG(hSession);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_PARALLEL;
@@ -3185,96 +3397,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_CancelFunction)(CK_SESSION_HANDLE hSession)
 CK_DEFINE_FUNCTION(CK_RV, C_WaitForSlotEvent)
 (CK_FLAGS flags, CK_SLOT_ID_PTR pSlot, CK_VOID_PTR pReserved)
 {
+    AX_UNUSED_ARG(flags);
+    AX_UNUSED_ARG(pSlot);
+    AX_UNUSED_ARG(pReserved);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
 }
-
-/**
- * @brief Writes a file to local storage.
- *
- * Port-specific file write for crytographic information.
- *
- * @param[in] pxLabel       Label of the object to be saved.
- * @param[in] pucData       Data buffer to be written to file
- * @param[in] ulDataSize    Size (in bytes) of data to be saved.
- *
- * @return The file handle of the object that was stored.
- */
-CK_OBJECT_HANDLE PKCS11_PAL_SaveObject(CK_ATTRIBUTE_PTR pxLabel, CK_BYTE_PTR pucData, CK_ULONG ulDataSize)
-{
-    /*Function to be implemented if required*/
-    return 0;
-}
-
-/*-----------------------------------------------------------*/
-
-/**
- * @brief Translates a PKCS #11 label into an object handle.
- *
- * Port-specific object handle retrieval.
- *
- *
- * @param[in] pxLabel         Pointer to the label of the object
- *                           who's handle should be found.
- * @param[in] usLength       The length of the label, in bytes.
- *
- * @return The object handle if operation was successful.
- * Returns eInvalidHandle if unsuccessful.
- */
-CK_OBJECT_HANDLE PKCS11_PAL_FindObject(CK_BYTE_PTR pxLabel, CK_ULONG usLength)
-{
-    /*Function to be implemented if required*/
-    return 0;
-}
-
-CK_RV PKCS11_PAL_Initialize(void)
-{
-    /*Function to be implemented if required*/
-    return 0;
-}
-
-/**
- * @brief Cleanup after PKCS11_GetObjectValue().
- *
- * @param[in] pucData       The buffer to free.
- *                          (*ppucData from PKCS11_PAL_GetObjectValue())
- * @param[in] ulDataSize    The length of the buffer to free.
- *                          (*pulDataSize from PKCS11_PAL_GetObjectValue())
- */
-void PKCS11_PAL_GetObjectValueCleanup(uint8_t *pucData, uint32_t ulDataSize)
-{
-}
-
-/**
- * @brief Gets the value of an object in storage, by handle.
- *
- * Port-specific file access for cryptographic information.
- *
- * This call dynamically allocates the buffer which object value
- * data is copied into.  PKCS11_PAL_GetObjectValueCleanup()
- * should be called after each use to free the dynamically allocated
- * buffer.
- *
- * @sa PKCS11_PAL_GetObjectValueCleanup
- *
- * @param[in] pcFileName    The name of the file to be read.
- * @param[out] ppucData     Pointer to buffer for file data.
- * @param[out] pulDataSize  Size (in bytes) of data located in file.
- * @param[out] pIsPrivate   Boolean indicating if value is private (CK_TRUE)
- *                          or exportable (CK_FALSE)
- *
- * @return CKR_OK if operation was successful.  CKR_KEY_HANDLE_INVALID if
- * no such object handle was found, CKR_DEVICE_MEMORY if memory for
- * buffer could not be allocated, CKR_FUNCTION_FAILED for device driver
- * error.
- */
-CK_RV PKCS11_PAL_GetObjectValue(
-    CK_OBJECT_HANDLE xHandle, uint8_t **ppucData, uint32_t *pulDataSize, CK_BBOOL *pIsPrivate)
-{
-    /*Function to be implemented if required*/
-    CK_RV xReturn = CKR_OK;
-    return xReturn;
-}
-
 #endif /* TGT_A71CH */

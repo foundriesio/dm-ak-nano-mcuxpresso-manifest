@@ -8,6 +8,7 @@
 /* ************************************************************************** */
 
 #include "sss_pkcs11_pal.h"
+#include <limits.h>
 
 /* ************************************************************************** */
 /* Public Functions                                                           */
@@ -79,7 +80,7 @@ CK_RV SetASNTLV(uint8_t tag, uint8_t *component, const size_t componentLen, uint
  * @param ulCount - Number of attributes in the search template.
  * @param key_buffer - Buffer containing the key data.
  * @param keyLen - size of the key_buffer in bytes.
- * 
+ *
  * @returns Status of the operation
  * @retval #CKR_OK The operation has completed successfully.
  * @retval #CKR_FUNCTION_FAILED The requested function could not be performed.
@@ -224,6 +225,10 @@ CK_RV CreateRawPrivateKey(CK_ATTRIBUTE_PTR pxTemplate, CK_ULONG ulCount, uint8_t
 
         key[*keyLen] = ASN_TAG_SEQUENCE;
 
+        if (bufferSize_copy < *keyLen) {
+            xResult = CKR_FUNCTION_FAILED;
+            goto exit;
+        }
         totalLen = bufferSize_copy - *keyLen;
         memcpy(&key_buffer[0], &key[*keyLen], totalLen);
         *keyLen = totalLen;
@@ -353,7 +358,7 @@ mbedtls_ecp_group_id EcParametersToGrpId(uint8_t *ecparameters, size_t len)
  * @param ulCount - Number of attributes in the search template.
  * @param key_buffer - Buffer containing the key data.
  * @param keyLen - size of the key_buffer in bytes.
- * 
+ *
  * @returns Status of the operation
  * @retval #CKR_OK The operation has completed successfully.
  * @retval #CKR_FUNCTION_FAILED The requested function could not be performed.
@@ -493,7 +498,7 @@ CK_RV CreateRawPublicKey(CK_ATTRIBUTE_PTR pxTemplate, CK_ULONG ulCount, uint8_t 
         memcpy(&ecPointInput[0],
             (uint8_t *)pxTemplate[parameterIndex].pValue,
             (size_t)pxTemplate[parameterIndex].ulValueLen);
-        int i = 0;
+        size_t i = 0;
         if (ecPointInput[i++] != ASN_TAG_OCTETSTRING) {
             xResult = CKR_ARGUMENTS_BAD;
             goto exit;
@@ -517,6 +522,18 @@ CK_RV CreateRawPublicKey(CK_ATTRIBUTE_PTR pxTemplate, CK_ULONG ulCount, uint8_t 
 
         uint8_t ecPoint[150] = {0};
         // size_t ecPoint_size = sizeof(ecPoint);
+        if (len > sizeof(ecPoint) - 1) {
+            xResult = CKR_ARGUMENTS_BAD;
+            goto exit;
+        }
+        if (ecPointInput_size < i) {
+            xResult = CKR_ARGUMENTS_BAD;
+            goto exit;
+        }
+        if (len > sizeof(ecPointInput) - i) {
+            xResult = CKR_ARGUMENTS_BAD;
+            goto exit;
+        }
         memcpy(&ecPoint[1], &ecPointInput[i], len);
 
         // xResult = SetASNTLV(tag, (uint8_t*) pxTemplate[parameterIndex].pValue, parameterLen, key, keyLen);
@@ -567,7 +584,11 @@ CK_RV CreateRawPublicKey(CK_ATTRIBUTE_PTR pxTemplate, CK_ULONG ulCount, uint8_t 
             goto exit;
         }
 
-        tag     = ASN_TAG_SEQUENCE;
+        tag = ASN_TAG_SEQUENCE;
+        if (ecPubParams_size >= sizeof(ecPubParams)) {
+            goto exit;
+        }
+
         xResult = SetASNTLV(tag, &ecPubParams[ecPubParams_size], sizeof(ecPubParams) - ecPubParams_size, key, keyLen);
         if (xResult != CKR_OK) {
             goto exit;
@@ -613,6 +634,10 @@ CK_RV CreateRawPublicKey(CK_ATTRIBUTE_PTR pxTemplate, CK_ULONG ulCount, uint8_t 
 
         key[*keyLen] = ASN_TAG_SEQUENCE;
 
+        if (bufferSize_copy < *keyLen) {
+            xResult = CKR_FUNCTION_FAILED;
+            goto exit;
+        }
         totalLen = bufferSize_copy - *keyLen;
         memcpy(&key_buffer[0], &key[*keyLen], totalLen);
         *keyLen = totalLen;
@@ -630,7 +655,7 @@ exit:
  *
  * @param signature - Buffer containing the signature to read and verify.
  * @param sigLen - Size of signature in bytes.
- * 
+ *
  * @returns Status of the operation
  * @retval #CKR_OK The operation has completed successfully.
  * @retval #CKR_FUNCTION_FAILED The requested function could not be performed.
@@ -694,7 +719,7 @@ exit:
  * @param rands_len - Length in bytes of generated rands.
  * @param output - Output buffer containing the signature data.
  * @param outputLen - Size of the output in bytes.
- * 
+ *
  * @returns Status of the operation
  * @retval #CKR_OK The operation has completed successfully.
  * @retval #CKR_FUNCTION_FAILED The requested function could not be performed.
@@ -774,21 +799,26 @@ exit:
  *
  * @param input - Pointer to a location where rands recieved.
  * @param dataLen - Length in bytes of generated rands.
- * 
+ *
  * @returns Status of the operation
  * @retval #CKR_OK The operation has completed successfully.
  * @retval #CKR_FUNCTION_FAILED The requested function could not be performed.
  */
 
-CK_RV EcPublickeyGetEcParams(uint8_t *input, size_t *dataLen)
+CK_RV EcPublickeyGetEcParams(uint8_t *input, size_t *inputLen)
 {
     CK_RV xResult      = CKR_FUNCTION_FAILED;
     size_t index       = 0;
     uint8_t data[1024] = {0};
-    int len            = 0;
-    memcpy(&data[0], input, *dataLen);
+    size_t len         = 0;
+    uint8_t tag        = 0;
+    if (sizeof(data) < *inputLen) {
+        xResult = CKR_FUNCTION_FAILED;
+        goto exit;
+    }
+    memcpy(&data[0], input, *inputLen);
 
-    uint8_t tag = data[index++];
+    tag = data[index++];
     if (tag != ASN_TAG_SEQUENCE) {
         xResult = CKR_FUNCTION_FAILED;
         goto exit;
@@ -798,15 +828,15 @@ CK_RV EcPublickeyGetEcParams(uint8_t *input, size_t *dataLen)
 
     if ((len & 0x80) == 0x80) {
         if ((len & 0x7F) == 0x01) {
-            // len = data[index++];
+            len = data[index++];
         }
         else if ((len & 0x7F) == 0x02) {
-            // len   = (data[index] << 8) | data[index + 1];
+            len   = (data[index] << 8) | data[index + 1];
             index = index + 2;
         }
     }
 
-    if (index > *dataLen) {
+    if (index > *inputLen) {
         goto exit;
     }
 
@@ -820,15 +850,15 @@ CK_RV EcPublickeyGetEcParams(uint8_t *input, size_t *dataLen)
 
     if ((len & 0x80) == 0x80) {
         if ((len & 0x7F) == 0x01) {
-            // len = data[index++];
+            len = data[index++];
         }
         else if ((len & 0x7F) == 0x02) {
-            // len   = (data[index] << 8) | data[index + 1];
+            len   = (data[index] << 8) | data[index + 1];
             index = index + 2;
         }
     }
 
-    if (index > *dataLen) {
+    if (index > *inputLen) {
         goto exit;
     }
 
@@ -852,7 +882,7 @@ CK_RV EcPublickeyGetEcParams(uint8_t *input, size_t *dataLen)
 
     index = index + len;
 
-    if (index > *dataLen) {
+    if (index > *inputLen) {
         goto exit;
     }
 
@@ -862,29 +892,36 @@ CK_RV EcPublickeyGetEcParams(uint8_t *input, size_t *dataLen)
         goto exit;
     }
 
+    ENSURE_OR_GO_EXIT((index + 1) <= sizeof(data) - 1);
     len = data[index + 1];
 
     if ((len & 0x80) == 0x80) {
         if ((len & 0x7F) == 0x01) {
+            ENSURE_OR_GO_EXIT((index + 2) <= sizeof(data) - 1);
             len = data[index + 2];
+            ENSURE_OR_GO_EXIT((UINT_MAX - 1) >= len);
             len++;
         }
         else if ((len & 0x7F) == 0x02) {
+            ENSURE_OR_GO_EXIT((index + 3) <= sizeof(data) - 1);
             len = (data[index + 2] << 8) | data[index + 3];
+            ENSURE_OR_GO_EXIT((UINT_MAX - 2) >= len);
             len = len + 2;
         }
     }
 
+    ENSURE_OR_GO_EXIT((UINT_MAX - 2) >= len);
     len = len + 2;
+    ENSURE_OR_GO_EXIT((UINT_MAX - index) >= (size_t)len);
 
-    if ((index + len) > *dataLen) {
+    if ((index + len) > *inputLen) {
         xResult = CKR_FUNCTION_FAILED;
         goto exit;
     }
 
     memcpy(&input[0], &data[index], len);
-    *dataLen = len;
-    xResult  = CKR_OK;
+    *inputLen = len;
+    xResult   = CKR_OK;
 
 exit:
     return xResult;
@@ -925,6 +962,9 @@ CK_RV AsymmetricEncrypt(P11SessionPtr_t pxSessionObj,
     sss_object_t sss_object = {0};
 
     if (pxSessionObj->xOperationInProgress == CKM_RSA_PKCS) {
+        if ((UINT_MAX - ulDataLen) < 11) {
+            return kStatus_SSS_Fail;
+        }
         xResult = (2048 >= (ulDataLen + 11)) ? CKR_OK : CKR_MECHANISM_INVALID;
         if (xResult != CKR_OK) {
             pxSessionObj->xOperationInProgress = pkcs11NO_OPERATION;

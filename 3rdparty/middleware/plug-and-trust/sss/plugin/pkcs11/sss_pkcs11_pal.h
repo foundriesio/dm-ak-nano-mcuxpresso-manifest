@@ -16,7 +16,6 @@
 /* FreeRTOS includes. */
 #if defined(USE_RTOS) && USE_RTOS == 1
 #include "FreeRTOS.h"
-#include "FreeRTOSIPConfig.h"
 #include "iot_crypto.h"
 #include "semphr.h"
 #include "task.h"
@@ -39,6 +38,9 @@
 #include "mbedtls/sha256.h"
 #include "mbedtls/x509_crt.h"
 #include "pkcs11_mbedtls_utils.h"
+#if SSS_HAVE_MBEDTLS_ALT
+#include "mbedtls/ssl.h"
+#endif
 #if defined(USE_RTOS) && USE_RTOS == 1
 #include "aws_clientcredential.h"
 #endif
@@ -89,6 +91,7 @@ extern SemaphoreHandle_t xSemaphore;
 /* C runtime includes. */
 #include <PlugAndTrust_Pkg_Ver.h>
 #include <fsl_sss_util_asn1_der.h>
+#include "ex_sss_ports.h"
 #include <ex_sss_boot.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,6 +203,15 @@ extern SemaphoreHandle_t xSemaphore;
 #define DEFAULT_POLICY_BIN_COUNT_PCR (POLICY_OBJ_ALLOW_DELETE | POLICY_OBJ_ALLOW_WRITE | POLICY_OBJ_ALLOW_READ)
 #define DEFAULT_POLICY_USERID (POLICY_OBJ_ALLOW_DELETE | POLICY_OBJ_ALLOW_WRITE)
 
+/* State of the Keypair*/
+typedef enum
+{
+    PrivateKeySize = 0, // This state returns the size of private key
+    PrivateKeyAttr,     // This state returns the attributes of private key
+    PublicKeySize,      // This state returns the size of public key
+    PublicKeyAttr,      // This state returns the attributes of public key
+} key_state_t;
+
 typedef int (*pfnMbedTlsSign)(void *ctx,
     mbedtls_md_type_t md_alg,
     const unsigned char *hash,
@@ -231,6 +243,16 @@ typedef struct P11Key
 } P11Key_t, *P11KeyPtr_t;
 
 /**
+ * @brief Handling keypair structure.
+ */
+typedef struct HandleP11KeyPair
+{
+    CK_BBOOL xSetPublicKey;
+    uint8_t keyState;
+    CK_OBJECT_HANDLE keyPairObjHandle;
+} HandleP11KeyPair_t, *HandleP11KeyPairPtr_t;
+
+/**
  * @brief Session structure.
  */
 typedef struct P11Session
@@ -246,6 +268,8 @@ typedef struct P11Session
     uint32_t xFindObjectTotalFound;
     uint16_t xFindObjectOutputOffset;
     CK_KEY_TYPE xFindObjectKeyType;
+    HandleP11KeyPairPtr_t pFindObject;
+    HandleP11KeyPairPtr_t pAttrKey;
     mbedtls_ctr_drbg_context xMbedDrbgCtx;
     mbedtls_entropy_context xMbedEntropyContext;
     mbedtls_pk_context xPublicKey;
@@ -360,7 +384,7 @@ U16 HLSE_Create_token(
 
 extern ex_sss_boot_ctx_t *pex_sss_demo_boot_ctx;
 extern ex_sss_cloud_ctx_t *pex_sss_demo_tls_ctx;
-
+mbedtls_ecp_group_id EcParametersToGrpId(uint8_t *ecparameters, size_t len);
 #endif // (SSS_HAVE_SSCP || SSS_HAVE_APPLET_SE05X_IOT || SSS_HAVE_APPLET_NONE)
 
 #endif // __SSS_PKCS11_PAL_H__

@@ -127,6 +127,9 @@ CK_RV ParseSignMechanism(P11SessionPtr_t pxSession, sss_algorithm_t *algorithm)
     case CKM_ECDSA_SHA1:
         *algorithm = kAlgorithm_SSS_ECDSA_SHA1;
         break;
+    case CKM_SHA256_HMAC:
+        *algorithm = kAlgorithm_SSS_HMAC_SHA256;
+        break;
 
     default:
         xResult = CKR_MECHANISM_INVALID;
@@ -294,6 +297,7 @@ CK_RV GetSSSAlgorithm(const sss_algorithm_t algorithm, sss_algorithm_t *digest_a
     case kAlgorithm_SSS_RSASSA_PKCS1_PSS_MGF1_SHA256:
     case kAlgorithm_SSS_RSAES_PKCS1_OAEP_SHA256:
     case kAlgorithm_SSS_ECDSA_SHA256:
+    case kAlgorithm_SSS_HMAC_SHA256:
         *digest_algo = kAlgorithm_SSS_SHA256;
         break;
     case kAlgorithm_SSS_SHA384:
@@ -379,10 +383,10 @@ CK_RV LabelToKeyId(unsigned char *label, size_t labelSize, uint32_t *keyId)
         LOCK_MUTEX_FOR_RTOS
         {
             sss_rng_context_t sss_rng_ctx = {0};
-            uint8_t rngData[10] = {0};
-            size_t rngDataLen   = sizeof(rngData);
-            status              = sss_rng_context_init(&sss_rng_ctx, &pex_sss_demo_boot_ctx->session /* Session */);
-            status              = sss_rng_get_random(&sss_rng_ctx, rngData, rngDataLen);
+            uint8_t rngData[10]           = {0};
+            size_t rngDataLen             = sizeof(rngData);
+            status = sss_rng_context_init(&sss_rng_ctx, &pex_sss_demo_boot_ctx->session /* Session */);
+            status = sss_rng_get_random(&sss_rng_ctx, rngData, rngDataLen);
             if (status != kStatus_SSS_Success) {
                 result = CKR_DEVICE_ERROR;
                 UNLOCK_MUTEX_FOR_RTOS
@@ -697,13 +701,13 @@ sss_status_t parseAtrribute(se05x_object_attribute *pAttribute,
     CK_BBOOL *pAllow)
 {
     uint32_t i;
-    uint32_t policyEnd;
-    uint32_t policyStart = 14;
-    uint8_t policy_len;   /**< Length of policy. */
-    uint32_t auth_obj_id; /**< Authentication object identifier */
-    uint32_t ar_header;   /**< AR Header */
-    CK_BBOOL found_policy = CK_FALSE;
-    uint32_t default_policy;
+    uint32_t policyEnd      = 0;
+    uint32_t policyStart    = 14;
+    uint8_t policy_len      = 0; /**< Length of policy. */
+    uint32_t auth_obj_id    = 0; /**< Authentication object identifier */
+    uint32_t ar_header      = 0; /**< AR Header */
+    CK_BBOOL found_policy   = CK_FALSE;
+    uint32_t default_policy = 0;
 
     if (rsp == NULL) {
         // Object attribute should be at least 19 bytes (without policy).
@@ -721,7 +725,7 @@ sss_status_t parseAtrribute(se05x_object_attribute *pAttribute,
     // Parse Attribute
     pAttribute->obj_id    = ((rsp[0] << 8 * 3) | (rsp[1] << 8 * 2) | (rsp[2] << 8 * 1) | (rsp[3]));
     pAttribute->obj_type  = rsp[4];
-    pAttribute->auth_attr = rsp[5];
+    pAttribute->auth_attr = (SE05x_SetIndicator_t)rsp[5];
     if (pAttribute->auth_attr == kSE05x_SetIndicator_SET) {
         pAttribute->auth_attempts = ((rsp[6] << 8 * 1) | (rsp[7]));
         pAttribute->max_attempts  = ((rsp[12] << 8 * 1) | (rsp[13]));
@@ -730,7 +734,7 @@ sss_status_t parseAtrribute(se05x_object_attribute *pAttribute,
         pAttribute->min_AEAD_tag_len = ((rsp[6] << 8 * 1) | (rsp[7]));
     }
     pAttribute->auth_obj_id = ((rsp[8] << 8 * 3) | (rsp[9] << 8 * 2) | (rsp[10] << 8 * 1) | (rsp[11]));
-    pAttribute->origin      = rsp[policyEnd];
+    pAttribute->origin      = (SE05x_Origin_t)rsp[policyEnd];
     pAttribute->version     = (rsp[policyEnd + 1] << 8 * 3) | (rsp[policyEnd + 2] << 8 * 2) |
                           (rsp[policyEnd + 3] << 8 * 1) | (rsp[policyEnd + 4]);
 #ifdef DEBUG_PKCS11_PAL
@@ -760,9 +764,14 @@ sss_status_t parseAtrribute(se05x_object_attribute *pAttribute,
     if (pAllow != NULL) {
         // Check policy set and decide if not allowed.
         for (i = policyStart; i < policyEnd;) {
-            policy_len  = rsp[i];
-            auth_obj_id = ((rsp[i + 1] << 8 * 3) | (rsp[i + 2] << 8 * 2) | (rsp[i + 3] << 8 * 1) | (rsp[i + 4]));
-            ar_header   = ((rsp[i + 5] << 8 * 3) | (rsp[i + 6] << 8 * 2) | (rsp[i + 7] << 8 * 1) | (rsp[i + 8]));
+            policy_len = rsp[i];
+            if (i + 8 < rspLen) {
+                auth_obj_id = ((rsp[i + 1] << 8 * 3) | (rsp[i + 2] << 8 * 2) | (rsp[i + 3] << 8 * 1) | (rsp[i + 4]));
+                ar_header   = ((rsp[i + 5] << 8 * 3) | (rsp[i + 6] << 8 * 2) | (rsp[i + 7] << 8 * 1) | (rsp[i + 8]));
+            }
+            else{
+                return kStatus_SSS_Fail;
+            }
 #ifdef DEBUG_PKCS11_PAL
             LOG_I("Policy auth object Id : 0x%08X", auth_obj_id);
             LOG_I("Policy Access rules : 0x%08X", ar_header);
@@ -840,6 +849,7 @@ sss_status_t parseAtrribute(se05x_object_attribute *pAttribute,
 #if SSS_HAVE_APPLET_SE05X_IOT
 smStatus_t read_id_list(CK_SESSION_HANDLE xSession, uint32_t *idlist, size_t *idlistlen, CK_ULONG ulMaxObjectCount)
 {
+    AX_UNUSED_ARG(ulMaxObjectCount);
     P11SessionPtr_t pxSession          = prvSessionPointerFromHandle(xSession);
     uint8_t pmore                      = kSE05x_MoreIndicator_NA;
     uint8_t list[MAX_ID_LIST_SIZE * 4] = {0};
@@ -928,7 +938,7 @@ sss_status_t get_validated_cipher_type(
         for (size_t i = 0; i < pCurrentKeyStore->keyIdListLen; i++) {
             if (pCurrentKeyStore->SSSObjects[i].keyId == (uint32_t)xObject) {
                 /* True */
-                *cipherType = pCurrentKeyStore->SSSObjects[i].cipherType;
+                *cipherType = (sss_cipher_type_t)(pCurrentKeyStore->SSSObjects[i].cipherType);
                 sss_status  = kStatus_SSS_Success;
                 break;
             }
@@ -940,7 +950,7 @@ sss_status_t get_validated_cipher_type(
 
         sss_status = sss_key_object_get_handle(&sss_object, xObject);
         ENSURE_OR_GO_EXIT(sss_status == kStatus_SSS_Success);
-        *cipherType = sss_object.cipherType;
+        *cipherType = (sss_cipher_type_t)(sss_object.cipherType);
     }
 
 exit:

@@ -69,6 +69,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_DestroyObject)
 CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
 (CK_SESSION_HANDLE xSession, CK_ATTRIBUTE_PTR pxTemplate, CK_ULONG ulCount, CK_OBJECT_HANDLE_PTR pxObject)
 {
+    AX_UNUSED_ARG(xSession);
     /*lint !e9072 It's OK to have different parameter name. */
     CK_RV xResult = CKR_OK;
     LOG_D("%s", __FUNCTION__);
@@ -229,6 +230,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                 ret = mbedtls_pk_parse_key(&pk, key, keyLen, NULL, 0);
                 if (ret != 0) {
                     xResult = CKR_ARGUMENTS_BAD;
+                    mbedtls_pk_free(&pk);
                     return xResult;
                 }
 
@@ -247,11 +249,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                         size_t keyLen     = sizeof(key);
                         xResult           = CreateRawPrivateKey(pxTemplate, ulCount, &key[0], &keyLen);
                         if (xResult != CKR_OK) {
+                            mbedtls_pk_free(&pk);
                             break;
                         }
                         ret = mbedtls_pk_parse_key(&pk, key, keyLen, NULL, 0);
                         if (ret != 0) {
                             xResult = CKR_ARGUMENTS_BAD;
+                            mbedtls_pk_free(&pk);
                             break;
                         }
 
@@ -272,6 +276,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
             err = HLSE_Create_token(keyId, HLSE_KEY_PAIR, buff, buff_len, HLSE_Handle_Create_obj);
             if (err != HLSE_SW_OK) {
                 xResult = CKR_DEVICE_ERROR;
+                mbedtls_pk_free(&pk);
                 return xResult;
             }
 
@@ -286,12 +291,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                     /* CKA_LABEL was not provided. Generate a random keyId */
                     xResult = LabelToKeyId((unsigned char *)"", 0, &keyId);
                     if (xResult != CKR_OK) {
+                        mbedtls_pk_free(&pk);
                         return xResult;
                     }
                 }
                 else {
                     xResult = LabelToKeyId(pxTemplate[labelIndex].pValue, pxTemplate[labelIndex].ulValueLen, &keyId);
                     if (xResult != CKR_OK) {
+                        mbedtls_pk_free(&pk);
                         return xResult;
                     }
                 }
@@ -301,6 +308,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
             index    = 0;
             xResult  = GetAttributeParameterIndex(pxTemplate, ulCount, CKA_KEY_TYPE, &index);
             if (xResult != CKR_OK) {
+                mbedtls_pk_free(&pk);
                 return xResult;
             }
             memcpy(&key_type, pxTemplate[index].pValue, pxTemplate[index].ulValueLen);
@@ -333,10 +341,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                     keybitlen = 521;
                     break;
                 default:
+                    mbedtls_pk_free(&pk);
                     return CKR_ARGUMENTS_BAD;
                 }
             }
             else {
+                mbedtls_pk_free(&pk);
                 return CKR_ARGUMENTS_BAD;
             }
 
@@ -351,12 +361,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
 
             if (status != kStatus_SSS_Success) {
                 xResult = CKR_DEVICE_ERROR;
+                mbedtls_pk_free(&pk);
                 return xResult;
             }
 
             *pxObject = keyId;
 
 #endif
+            mbedtls_pk_free(&pk);
             break;
 
         case CKO_PUBLIC_KEY:
@@ -376,6 +388,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                 ret = mbedtls_pk_parse_public_key(&pk, &key[0], keyLen);
                 if (ret != 0) {
                     xResult = CKR_ARGUMENTS_BAD;
+                    mbedtls_pk_free(&pk);
                     break;
                 }
                 memset(buff, 0, sizeof(buff));
@@ -388,6 +401,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                     mbedtls_pk_parse_public_key(&pk, pxTemplate[Valueindex].pValue, pxTemplate[Valueindex].ulValueLen);
                 if (ret != 0) {
                     xResult = CKR_ARGUMENTS_BAD;
+                    mbedtls_pk_free(&pk);
                     break;
                 }
                 memset(buff, 0, sizeof(buff));
@@ -400,6 +414,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
             err = HLSE_Create_token(keyId, HLSE_PUBLIC_KEY, buff, buff_len, HLSE_Handle_Create_obj);
             if (err != HLSE_SW_OK) {
                 xResult = CKR_DEVICE_ERROR;
+                mbedtls_pk_free(&pk);
                 return xResult;
             }
 
@@ -413,12 +428,14 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                     /* CKA_LABEL was not provided. Generate a random keyId */
                     xResult = LabelToKeyId((unsigned char *)"", 0, &keyId);
                     if (xResult != CKR_OK) {
+                        mbedtls_pk_free(&pk);
                         return xResult;
                     }
                 }
                 else {
                     xResult = LabelToKeyId(pxTemplate[labelIndex].pValue, pxTemplate[labelIndex].ulValueLen, &keyId);
                     if (xResult != CKR_OK) {
+                        mbedtls_pk_free(&pk);
                         return xResult;
                     }
                 }
@@ -455,10 +472,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                     keybitlen = 521;
                     break;
                 default:
+                    mbedtls_pk_free(&pk);
                     return CKR_ARGUMENTS_BAD;
                 }
                 break;
             default:
+                mbedtls_pk_free(&pk);
                 return CKR_ARGUMENTS_BAD;
             }
 
@@ -473,11 +492,13 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
 
             if (status != kStatus_SSS_Success) {
                 xResult = CKR_DEVICE_ERROR;
+                mbedtls_pk_free(&pk);
                 return xResult;
             }
 
             *pxObject = keyId;
 #endif
+            mbedtls_pk_free(&pk);
             break;
 
         case CKO_SECRET_KEY:
@@ -510,13 +531,26 @@ CK_DEFINE_FUNCTION(CK_RV, C_CreateObject)
                 return xResult;
             }
 
+            index   = 0;
+            xResult = GetAttributeParameterIndex(pxTemplate, ulCount, CKA_KEY_TYPE, &index);
+            if (xResult != CKR_OK) {
+                return xResult;
+            }
+            memcpy(&key_type, pxTemplate[index].pValue, pxTemplate[index].ulValueLen);
+            /* Check for HMAC Keytype */
+            if (key_type == CKK_SHA256_HMAC) {
+                cipherType = kSSS_CipherType_HMAC;
+            }
+            else {
+                cipherType = kSSS_CipherType_AES;
+            }
             if (0 != pxTemplate[i].ulValueLen) {
                 sss_object_t secretObject = {0};
                 status                    = sss_create_token(&pex_sss_demo_boot_ctx->ks,
                     &secretObject,
                     keyId,
                     kSSS_KeyPart_Default,
-                    kSSS_CipherType_AES,
+                    cipherType,
                     (uint8_t *)pxTemplate[i].pValue,
                     pxTemplate[i].ulValueLen,
                     pxTemplate[i].ulValueLen * 8);
@@ -567,9 +601,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjectsInit)
         pxSession->xFindObjectClass      = pkcs11INVALID_OBJECT_CLASS; /* Invalid Class */
         pxSession->xFindObjectKeyType    = pkcs11INVALID_KEY_TYPE;     /* Invalid Key Type */
         pxSession->xFindObjectTotalFound = 0;
-        pxSession->xFindObjectInit       = CK_FALSE;
         return CKR_OK;
-        // return CKR_ARGUMENTS_BAD;
     }
 
     int classIndex      = 0;
@@ -612,7 +644,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
     BaseType_t xDone          = pdFALSE;
     P11SessionPtr_t pxSession = prvSessionPointerFromHandle(xSession);
     uint32_t keyId            = 0x0;
-
     /*
      * Check parameters.
      */
@@ -735,10 +766,17 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
 
     else if ((pdFALSE == xDone)) {
 #if SSS_HAVE_APPLET_SE05X_IOT
+        if (MAX_ID_LIST_SIZE < ulMaxObjectCount) {
+            LOG_E("More than MAX_ID_LIST_SIZE objects requested");
+            xResult = CKR_ARGUMENTS_BAD;
+            xDone   = pdTRUE;
+            return xResult;
+        }
     retry:
         xResult                                            = CKR_OK;
         static uint32_t object_list[USER_MAX_ID_LIST_SIZE] = {0};
         static size_t object_list_size                     = 0;
+
         if (pxSession->xFindObjectOutputOffset % USER_MAX_ID_LIST_SIZE == 0) {
             memset(object_list, 0, sizeof(object_list));
             object_list_size     = sizeof(object_list) / sizeof(object_list[0]);
@@ -751,6 +789,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
             }
             /* Read ID List was successful. Update SW Keystore for further operations */
             pxSession->pCurrentKs = (SwKeyStorePtr_t)SSS_MALLOC(sizeof(SwKeyStore_t));
+            if (!pxSession->pCurrentKs) {
+                xResult = CKR_HOST_MEMORY;
+                xDone   = pdTRUE;
+                return xResult;
+            }
             memset(pxSession->pCurrentKs, 0, sizeof(SwKeyStore_t));
             for (size_t i = 0; i < object_list_size; i++) {
                 pxSession->pCurrentKs->keyIdListLen = i + 1;
@@ -765,7 +808,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
                     LOG_E("Object get handle failed for 0x%08X", object_list[i]);
                     continue;
                 }
-
                 memcpy(&pxSession->pCurrentKs->SSSObjects[i], &object, sizeof(pxSession->pCurrentKs->SSSObjects[0]));
             }
         }
@@ -773,6 +815,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
         size_t i                       = 0;
         CK_OBJECT_HANDLE_PTR ckObjects = (CK_OBJECT_HANDLE_PTR)SSS_MALLOC(sizeof(CK_OBJECT_HANDLE) * ulMaxObjectCount);
         *pulObjectCount                = 0;
+        if (!ckObjects) {
+            xResult = CKR_HOST_MEMORY;
+            xDone   = pdTRUE;
+            return xResult;
+        }
 
         LOCK_MUTEX_FOR_RTOS
         {
@@ -781,6 +828,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
                  i++) {
                 uint32_t id = object_list[i];
                 sss_object_t *pObject;
+
                 pxSession->xFindObjectOutputOffset++;
                 pObject = &pxSession->pCurrentKs->SSSObjects[i];
 
@@ -789,8 +837,27 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
                 }
                 if (pxSession->xFindObjectClass == pkcs11INVALID_OBJECT_CLASS &&
                     pxSession->xFindObjectKeyType == pkcs11INVALID_KEY_TYPE) {
-                    memcpy(&ckObjects[*pulObjectCount], &id, sizeof(id));
-                    (*pulObjectCount)++;
+                    /* For public key attributes */
+                    if (pxSession->pFindObject->xSetPublicKey == CK_TRUE) {
+                        memcpy(&ckObjects[*pulObjectCount], &pxSession->pFindObject->keyPairObjHandle, sizeof(id));
+                        (*pulObjectCount)++;
+                        pxSession->pFindObject->xSetPublicKey = CK_FALSE;
+                    }
+                    else {
+                        memcpy(&ckObjects[*pulObjectCount], &id, sizeof(id));
+                        (*pulObjectCount)++;
+                        /* For public key attributes */
+                        if (pObject->objectType == kSSS_KeyPart_Pair) {
+                            pxSession->pFindObject->keyPairObjHandle = id;
+                            pxSession->pFindObject->xSetPublicKey    = CK_TRUE;
+                            /* We have maintained object cache having same object for keypair type
+                             * So, for private/public key there will be same keyobject.
+                             * Here xFindObjectOutputOffset is decremented so that it points to the
+                             * public key instead of pointing to the next object.
+                             */
+                            pxSession->xFindObjectOutputOffset--;
+                        }
+                    }
                 }
                 else if (pxSession->xFindObjectClass != pkcs11INVALID_OBJECT_CLASS &&
                          pxSession->xFindObjectKeyType == pkcs11INVALID_KEY_TYPE) {
@@ -800,7 +867,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
                     }
                     if ((pObject->cipherType == kSSS_CipherType_Binary && isX509Cert == CK_TRUE &&
                             pxSession->xFindObjectClass == CKO_CERTIFICATE) ||
-                        (pObject->objectType == kSSS_KeyPart_Pair && pxSession->xFindObjectClass == CKO_PRIVATE_KEY) ||
+                        (pObject->objectType == kSSS_KeyPart_Pair &&
+                            (pxSession->xFindObjectClass == CKO_PRIVATE_KEY ||
+                                pxSession->xFindObjectClass == CKO_PUBLIC_KEY)) ||
                         (pObject->objectType == kSSS_KeyPart_Public && pxSession->xFindObjectClass == CKO_PUBLIC_KEY)) {
                         memcpy(&ckObjects[*pulObjectCount], &id, sizeof(id));
                         (*pulObjectCount)++;
@@ -827,7 +896,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
                     }
                     if ((pObject->cipherType == kSSS_CipherType_Binary && isX509Cert == CK_TRUE &&
                             pxSession->xFindObjectClass == CKO_CERTIFICATE) ||
-                        (pObject->objectType == kSSS_KeyPart_Pair && pxSession->xFindObjectClass == CKO_PRIVATE_KEY) ||
+                        (pObject->objectType == kSSS_KeyPart_Pair &&
+                            (pxSession->xFindObjectClass == CKO_PRIVATE_KEY ||
+                                pxSession->xFindObjectClass == CKO_PUBLIC_KEY)) ||
                         (pObject->objectType == kSSS_KeyPart_Public && pxSession->xFindObjectClass == CKO_PUBLIC_KEY)) {
                         if ((pObject->cipherType == kSSS_CipherType_AES && pxSession->xFindObjectKeyType == CKK_AES) ||
                             (pObject->cipherType == kSSS_CipherType_DES && pxSession->xFindObjectKeyType == CKK_DES) ||
@@ -863,7 +934,6 @@ CK_DEFINE_FUNCTION(CK_RV, C_FindObjects)
 #endif
         xDone = pdTRUE;
     }
-
     return xResult;
 }
 
@@ -921,6 +991,12 @@ CK_DEFINE_FUNCTION(CK_RV, C_CopyObject)
     CK_ULONG ulCount,
     CK_OBJECT_HANDLE_PTR phNewObject)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(hObject);
+    AX_UNUSED_ARG(pTemplate);
+    AX_UNUSED_ARG(ulCount);
+    AX_UNUSED_ARG(phNewObject);
+
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -936,6 +1012,7 @@ CK_DEFINE_FUNCTION(CK_RV, C_GenerateKey)
     CK_ULONG ulCount,
     CK_OBJECT_HANDLE_PTR phKey)
 {
+    AX_UNUSED_ARG(hSession);
     LOG_D("%s", __FUNCTION__);
     /*
         Attribute.CLASS: ObjectClass.SECRET_KEY,
@@ -1324,6 +1401,9 @@ cont:
 CK_DEFINE_FUNCTION(CK_RV, C_GetObjectSize)
 (CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject, CK_ULONG_PTR pulSize)
 {
+    AX_UNUSED_ARG(hSession);
+    AX_UNUSED_ARG(hObject);
+    AX_UNUSED_ARG(pulSize);
     LOG_D("%s", __FUNCTION__);
 
     return CKR_FUNCTION_NOT_SUPPORTED;
@@ -1352,18 +1432,15 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)
     if (!pxTemplate) {
         return CKR_ARGUMENTS_BAD;
     }
-
     /*
      * Enumerate the requested attributes.
      */
-
     LOCK_MUTEX_FOR_RTOS
     {
         for (iAttrib = 0; iAttrib < ulCount && CKR_OK == xResult; iAttrib++) {
             /*
              * Get the attribute data and size.
              */
-
             ulAttrLength             = 0;
             size_t size              = 0;
             CK_BBOOL infoUnavailable = CK_FALSE;
@@ -1483,6 +1560,9 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)
                 case kSSS_CipherType_DES:
                     xP11KeyType = CKK_AES;
                     break;
+                case kSSS_CipherType_HMAC:
+                    xP11KeyType = CKK_SHA256_HMAC;
+                    break;
                 default:
                     xResult = CKR_ATTRIBUTE_VALUE_INVALID;
                     break;
@@ -1534,6 +1614,11 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)
                     ulAttrLength = CK_UNAVAILABLE_INFORMATION;
                     xResult      = CKR_ATTRIBUTE_SENSITIVE;
                     LOG_W("Not allowed to readout Symmetric key value");
+                    break;
+                case kSSS_CipherType_HMAC:
+                    ulAttrLength = CK_UNAVAILABLE_INFORMATION;
+                    xResult      = CKR_ATTRIBUTE_SENSITIVE;
+                    LOG_W("Not allowed to readout HMAC key value");
                     break;
 #if SSS_HAVE_APPLET_SE05X_IOT
                 case kSSS_CipherType_Count:
@@ -1789,9 +1874,55 @@ CK_DEFINE_FUNCTION(CK_RV, C_GetAttributeValue)
                 }
 
                 if (sss_object.objectType == kSSS_KeyPart_Private || sss_object.objectType == kSSS_KeyPart_Pair) {
-                    objectClass  = CKO_PRIVATE_KEY;
-                    pvAttr       = &objectClass;
-                    ulAttrLength = sizeof(objectClass);
+                    if (xObject == pxSession->pAttrKey->keyPairObjHandle) {
+                        /* Doing nothing as its the same object handle */
+                    }
+                    else {
+                        /* Reset structure so that it can move to next object handle */
+                        pxSession->pAttrKey->keyPairObjHandle = xObject;
+                        pxSession->pAttrKey->xSetPublicKey    = CK_FALSE;
+                        pxSession->pAttrKey->keyState         = 0;
+                    }
+
+                    /* Returning public/private according to the flag */
+                    if (pxSession->pAttrKey->xSetPublicKey != CK_TRUE) {
+                        objectClass  = CKO_PRIVATE_KEY;
+                        pvAttr       = &objectClass;
+                        ulAttrLength = sizeof(objectClass);
+                    }
+                    else {
+                        objectClass  = CKO_PUBLIC_KEY;
+                        pvAttr       = &objectClass;
+                        ulAttrLength = sizeof(objectClass);
+                    }
+
+                    /* To handling the public/private object and key states correctly */
+                    switch (pxSession->pAttrKey->keyState) {
+                    case PrivateKeySize: {
+                        pxSession->pAttrKey->keyState++;
+                        break;
+                    }
+                    case PrivateKeyAttr: {
+                        pxSession->pAttrKey->xSetPublicKey = CK_TRUE;
+                        pxSession->pAttrKey->keyState++;
+                        break;
+                    }
+                    case PublicKeySize: {
+                        pxSession->pAttrKey->keyState++;
+                        break;
+                    }
+                    case PublicKeyAttr: {
+                        pxSession->pAttrKey->xSetPublicKey = CK_FALSE;
+                        pxSession->pAttrKey->keyState      = 0;
+                        break;
+                    }
+                    default: {
+                        LOG_E("Invalid keystate hence unable to handle keypair");
+                        pvAttr       = NULL;
+                        ulAttrLength = CK_UNAVAILABLE_INFORMATION;
+                        break;
+                    }
+                    }
                 }
                 else if (sss_object.objectType == kSSS_KeyPart_Public) {
                     objectClass  = CKO_PUBLIC_KEY;
