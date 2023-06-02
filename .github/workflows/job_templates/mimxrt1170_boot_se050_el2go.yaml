@@ -1,0 +1,133 @@
+device_type: mimxrt1170_cm7
+job_name: basic_mcu_ota_se050_el2go
+timeouts:
+  job:
+    minutes: 15
+  action:
+    minutes: 5
+  connection:
+    minutes: 2
+tags:
+  - "nuc-worker-11"
+priority: medium
+visibility: public
+metadata:
+  CI_TEST_1/RUNNING_FROM_SLOT: "1"
+  CI_TEST_1/CHECKIN: "successful"
+  CI_TEST_2/RUNNING_FROM_SLOT: "2"
+  CI_TEST_2/CHECKIN: "successful"
+  CI_TEST_3/RUNNING_FROM_SLOT: "1"
+  CI_TEST_4/ROLLBACK_TEST: "1"
+  CI_TEST_3/CHECKIN: "successful"
+  CI_TEST_3/ROLLBACK: "1"
+actions:
+- deploy:
+    namespace: cleanup
+    timeout:
+      minutes: 15
+    to: downloads
+    images:
+      build:
+        url: https://s.lava.infra.foundries.io/el2go_cleanup_rt1170.signed.bin
+        headers:
+          Authorization: LAVA_BASIC_AUTH
+      mcuboot:
+        url: https://s.lava.infra.foundries.io/mcuboot_opensource_rt1170.elf
+        headers:
+          Authorization: LAVA_BASIC_AUTH
+    postprocess:
+      docker:
+        image: miloszwasilewski/mcu_lava:latest
+        steps:
+        - export IMAGE_PATH=$PWD
+        - ls -l "${IMAGE_PATH}"
+        - echo "DEVICE_TYPE=mimxrt1170_cm7" >> flash.settings
+        - echo "TMPFILES=mcuboot_opensource_rt1170.elf" >> flash.settings
+        - ls -l $IMAGE_PATH
+- deploy:
+    namespace: cleanup
+    timeout:
+      minutes: 5
+    to: flasher
+    images:
+      image:
+        url: downloads://el2go_cleanup_rt1170.signed.bin
+      settings:
+        url: downloads://flash.settings
+      mcuboot:
+        url: downloads://mcuboot_opensource_rt1170.elf
+- boot:
+    namespace: cleanup
+    timeout:
+      minutes: 10
+    method: minimal
+- test:
+    namespace: cleanup
+    monitors:
+    - name: "basic_test"
+      start: "---------STARTING DEMO---------"
+      end: "Halting execution"
+      pattern: _unused_
+
+- command:
+    namespace: cleanup
+    name: remove_from_el2go
+- command:
+    namespace: cleanup
+    name: add_to_el2go
+
+- deploy:
+    namespace: testrun
+    connection-namespace: cleanup
+    timeout:
+      minutes: 15
+    to: downloads
+    images:
+      build:
+        url: {BUILD_URL}
+        headers:
+          Authorization: GITHUB_AUTH
+      mcuboot:
+        url: https://s.lava.infra.foundries.io/mcuboot_opensource_rt1170.elf
+        headers:
+          Authorization: LAVA_BASIC_AUTH
+    postprocess:
+      docker:
+        image: miloszwasilewski/mcu_lava:latest
+        steps:
+        - export IMAGE_PATH=$PWD
+        - ls -l "${IMAGE_PATH}"
+        - unzip "zip"
+        - ls -l "${IMAGE_PATH}"
+        - echo "DEVICE_TYPE=mimxrt1170_cm7" >> flash.settings
+        - echo "TMPFILES=mcuboot_opensource_rt1170.elf" >> flash.settings
+        - ls -l $IMAGE_PATH
+- deploy:
+    namespace: testrun
+    connection-namespace: cleanup
+    timeout:
+      minutes: 5
+    to: flasher
+    images:
+      image:
+        url: downloads://ota_demo.SE05X_EL2GO_rt1170.{OTA_REVISION_BASE}111.signed.bin
+      settings:
+        url: downloads://flash.settings
+      mcuboot:
+        url: downloads://mcuboot_opensource_rt1170.elf
+- boot:
+    namespace: testrun
+    connection-namespace: cleanup
+    timeout:
+      minutes: 10
+    method: minimal
+- test:
+    timeout:
+      minutes: 10
+    namespace: testrun
+    connection-namespace: cleanup
+    monitors:
+    - name: "basic_test"
+      start: "---------STARTING DEMO---------"
+      end: "REVISION=v{OTA_REVISION_BASE}113 ROLLBACK=1"
+      pattern: _unused_
