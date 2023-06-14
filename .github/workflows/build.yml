@@ -15,7 +15,7 @@ jobs:
           - ENABLE_SE05X: 0
             ENABLE_EL2GO: 1
     runs-on: ubuntu-latest
-    container: miloszwasilewski/mcu_lava:latest
+    container: ghcr.io/foundriesio/mcubuild:latest
     env:
       ARMGCC_DIR: "/usr/"
       AKNANO_BOARD_MODEL: ${{matrix.BOARD_MODEL}}
@@ -149,7 +149,7 @@ jobs:
   upload:
     needs: build
     runs-on: ubuntu-latest
-    container: miloszwasilewski/mcu_lava:latest
+    container: ghcr.io/foundriesio/mcubuild:latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v3
