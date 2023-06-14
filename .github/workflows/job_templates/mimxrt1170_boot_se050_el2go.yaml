@@ -37,7 +37,7 @@ actions:
           Authorization: LAVA_BASIC_AUTH
     postprocess:
       docker:
-        image: miloszwasilewski/mcu_lava:latest
+        image: ghcr.io/foundriesio/mcubuild:latest
         steps:
         - export IMAGE_PATH=$PWD
         - ls -l "${IMAGE_PATH}"

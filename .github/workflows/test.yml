@@ -18,7 +18,7 @@ jobs:
 
   on-build-success:
     runs-on: ubuntu-latest
-    container: miloszwasilewski/mcu_lava:latest
+    container: ghcr.io/foundriesio/mcubuild:latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     env:
       QA_TOKEN: ${{ secrets.QA_REPORTS_TOKEN }}
