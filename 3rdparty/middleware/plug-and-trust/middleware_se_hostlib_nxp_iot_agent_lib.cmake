@@ -39,7 +39,6 @@ target_include_directories(${MCUX_SDK_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/src/protobuf
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/inc
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/platform/mbedtls
-    ${CMAKE_CURRENT_LIST_DIR}/semslite/lib/inc
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/platform
     ${CMAKE_CURRENT_LIST_DIR}/nxp_iot_agent/ex/inc
 )
