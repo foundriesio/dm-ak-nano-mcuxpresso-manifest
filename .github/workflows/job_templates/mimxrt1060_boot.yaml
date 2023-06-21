@@ -24,6 +24,10 @@ metadata:
   CI_TEST_3/CHECKIN: "successful"
   CI_TEST_3/ROLLBACK: "1"
 actions:
+- command:
+    name: serial_down
+- command:
+    name: serial_up
 - deploy:
     timeout:
       minutes: 15

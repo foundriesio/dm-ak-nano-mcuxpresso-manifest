@@ -22,6 +22,12 @@ metadata:
   CI_TEST_3/CHECKIN: "successful"
   CI_TEST_3/ROLLBACK: "1"
 actions:
+- command:
+    namespace: cleanup
+    name: serial_down
+- command:
+    namespace: cleanup
+    name: serial_up
 - deploy:
     namespace: cleanup
     timeout:
