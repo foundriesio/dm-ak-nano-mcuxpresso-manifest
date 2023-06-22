@@ -186,4 +186,8 @@
 typedef struct pb_bytes_array_s pb_bytes_array_t;
 extern const pb_bytes_array_t* iot_agent_trusted_root_ca_certificates;
 
+/* Use FreeRTOS malloc/free alternatives in EL2GO agent */
+#define NETWORK_malloc pvPortMalloc
+#define NETWORK_free vPortFree
+
 #endif // #ifndef _NXP_IOT_AGENT_CONFIG_H_
