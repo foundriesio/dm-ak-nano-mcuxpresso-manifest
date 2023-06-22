@@ -105,7 +105,7 @@ manifest:
 
     - name: libtufnano
       path: foundriesio/libtufnano
-      revision: f19c18bcbc64fe3838547495844656eb103b3a2d
+      revision: b4ee4b5af914e11e0654a475f83758786f525ec9
       url: https://github.com/foundriesio/libtufnano.git
 
     - name: plug-and-trust
