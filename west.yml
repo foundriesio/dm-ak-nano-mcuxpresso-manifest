@@ -29,7 +29,7 @@ manifest:
   projects:
     - name: mcux-sdk
       revision: MCUX_2.13.0_UPDATE
-      path: mcuxsdk
+      path: core
 
     - name: FreeRTOS-Kernel
       revision: MCUX_2.13.0
@@ -95,7 +95,7 @@ manifest:
 
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
-      revision: 4dc9accb65d24f2cfa7fe6e41341ba331cdf3d0c
+      revision: c0231a99c031c93ac34d7fb9c77f54a25fceee02
       url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
     - name: aktualizr-nano
