@@ -95,7 +95,7 @@ manifest:
 
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
-      revision: c0231a99c031c93ac34d7fb9c77f54a25fceee02
+      revision: 45182dc68dd2f7402d6c0349b3f86ca65457ce27
       url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
     - name: aktualizr-nano
