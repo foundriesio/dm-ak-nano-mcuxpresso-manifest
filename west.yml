@@ -28,11 +28,11 @@ manifest:
 
   projects:
     - name: mcux-sdk
-      revision: MCUX_2.13.0_UPDATE
+      revision: MCUX_2.14.0_UPDATE
       path: core
 
     - name: FreeRTOS-Kernel
-      revision: MCUX_2.13.0
+      revision: MCUX_2.14.0
       path: rtos/freertos/freertos_kernel
 
     - name: Unity
@@ -42,15 +42,15 @@ manifest:
 
     - name: mbedtls
       path: middleware/mbedtls
-      revision: MCUX_2.13.0
+      revision: MCUX_2.14.0
 
     - name: lwip
       path: middleware/lwip
-      revision: MCUX_2.13.0
+      revision: MCUX_2.14.0
 
     - name: CMSIS_5
       path: middleware/CMSIS_5
-      revision: MCUX_2.13.0
+      revision: MCUX_2.14.0
 
     - name: coreJSON
       path: middleware/freertos/coreJSON
@@ -66,11 +66,6 @@ manifest:
       path: middleware/freertos/corePKCS11
       revision: v3.4.0
       remote: freertos
-
-    - name: ota-for-aws-iot-embedded-sdk
-      path: middleware/aws/ota
-      revision: v3.3.0
-      remote: aws
 
     - name: pkcs11
       path: middleware/pkcs11
@@ -95,7 +90,7 @@ manifest:
 
     - name: dm-ak-nano-mcuxpresso
       path: foundriesio/dm-ak-nano-mcuxpresso
-      revision: c0231a99c031c93ac34d7fb9c77f54a25fceee02
+      revision: 9f7d7284b210890dce3721ccff5347eb9b0ffd0b
       url: https://github.com/foundriesio/dm-ak-nano-mcuxpresso.git
 
     - name: aktualizr-nano
