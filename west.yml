@@ -42,7 +42,8 @@ manifest:
 
     - name: mbedtls
       path: middleware/mbedtls
-      revision: MCUX_2.14.0
+      revision: MCUX_2.14.0-fio
+      url: https://github.com/detsch/mcuxpresso-mbedtls.git
 
     - name: lwip
       path: middleware/lwip
